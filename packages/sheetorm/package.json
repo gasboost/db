@@ -1,0 +1,10 @@
+{
+  "name": "@gasboost/sheetorm",
+  "dependencies": {
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@gasboost/fake-core": "^0.1.1",
+    "@gasboost/fake-node": "^0.1.1"
+  }
+}

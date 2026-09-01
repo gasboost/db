@@ -12,7 +12,26 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  packages/sheetorm:
+    dependencies:
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+    devDependencies:
+      '@gasboost/fake-core':
+        specifier: ^0.1.1
+        version: 0.1.1
+      '@gasboost/fake-node':
+        specifier: ^0.1.1
+        version: 0.1.1(date-fns@4.4.0)
+
 packages:
+
+  '@gasboost/fake-core@0.1.1':
+    resolution: {integrity: sha512-QpmbOn5Z1fN5raWKs1nLzsMpIOiEH2+dDl1hYWsKp5PxCgdln142iwhideEmgrOW65KnBQl2e8jY0aROPyyLtg==}
+
+  '@gasboost/fake-node@0.1.1':
+    resolution: {integrity: sha512-y+DwqOHNcNAxnVxh4xMYSo0dZ6zpyrKxfUTJAi0laeJTSEuxItbWnzBv6cgK9vCNYUilmx6r1uvo1D9dcR56Jg==}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     resolution: {integrity: sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==}
@@ -134,12 +153,36 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  date-fns-tz@3.2.0:
+    resolution: {integrity: sha512-sg8HqoTEulcbbbVXeg84u5UnlsQa8GS5QXMqjjYIhS4abEVVKIUwe0/l/UhrZdKaL/W5eWZNlbTeEIiOXTcsBQ==}
+    peerDependencies:
+      date-fns: ^3.0.0 || ^4.0.0
+
+  date-fns@4.4.0:
+    resolution: {integrity: sha512-+1UMbeh68lH1SegH83CGWwpb6OHHbpSgr3+s5Eww5M4CAgswBpoWS0AjTOfEJ33HiYKz1hdj/KTFprzXHmq/6w==}
+
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
     hasBin: true
 
+  zod@4.5.4:
+    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
+
 snapshots:
+
+  '@gasboost/fake-core@0.1.1': {}
+
+  '@gasboost/fake-node@0.1.1(date-fns@4.4.0)':
+    dependencies:
+      '@gasboost/fake-core': 0.1.1
+      date-fns-tz: 3.2.0(date-fns@4.4.0)
+      fflate: 0.8.3
+    transitivePeerDependencies:
+      - date-fns
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
@@ -201,6 +244,14 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
+  date-fns-tz@3.2.0(date-fns@4.4.0):
+    dependencies:
+      date-fns: 4.4.0
+
+  date-fns@4.4.0: {}
+
+  fflate@0.8.3: {}
+
   typescript@7.0.2:
     optionalDependencies:
       '@typescript/typescript-aix-ppc64': 7.0.2
@@ -223,3 +274,5 @@ snapshots:
       '@typescript/typescript-sunos-x64': 7.0.2
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
+
+  zod@4.5.4: {}

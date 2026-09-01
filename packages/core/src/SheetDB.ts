@@ -3,14 +3,9 @@ import { AccessableDataStore } from "./AccessableDataStore";
 import { CreateCommand } from "./commands/CreateCommand";
 import { DeleteCommand } from "./commands/DeleteCommand";
 import { UpdateCommand } from "./commands/UpdateCommand";
-import { SheetQuery } from "./query/SheetQuery";
+import { SheetQuery, TableByName } from "./query/SheetQuery";
 import { SheetRecords } from "./SheetRecords";
 import { SheetTable } from "./SheetTable";
-
-export type TableByName<
-  T extends readonly SheetTable<string, any>[],
-  N extends T[number]["name"],
-> = Extract<T[number], { name: N }>;
 
 export type CurrentTable<
   T extends readonly SheetTable<string, any>[],

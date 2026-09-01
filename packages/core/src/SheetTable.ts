@@ -10,6 +10,21 @@ export type AutoNumberingMode = "increment" | "uuid";
 
 export type Columns<Z extends ZodObject<any>> = keyof z.infer<Z>;
 
+type CompatibleColumns<
+  Z extends ZodObject<any>,
+  Value,
+> = {
+  [K in Columns<Z>]: [NonNullable<z.infer<Z>[K]>] extends [NonNullable<Value>]
+    ? [NonNullable<Value>] extends [NonNullable<z.infer<Z>[K]>]
+      ? K
+      : never
+    : never;
+}[Columns<Z>];
+
+type NullableColumns<Z extends ZodObject<any>> = {
+  [K in Columns<Z>]: null extends z.infer<Z>[K] ? K : never;
+}[Columns<Z>];
+
 export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
   public readonly autoIncrement: boolean;
   public readonly autoNumberingMode: AutoNumberingMode | null = null;
@@ -80,9 +95,37 @@ export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
   >(
     foreignKey: K,
     referenceTable: SheetTable<RN, RZ>,
+    referenceColumn: CompatibleColumns<RZ, z.infer<Z>[K]>,
+    onDelete: Exclude<OnDeleteAction, "set null">,
+  ): this;
+  reference<
+    K extends NullableColumns<Z>,
+    RN extends string,
+    RZ extends ZodObject<ZodRawShape>,
+  >(
+    foreignKey: K,
+    referenceTable: SheetTable<RN, RZ>,
+    referenceColumn: CompatibleColumns<RZ, z.infer<Z>[K]>,
+    onDelete: "set null",
+  ): this;
+  reference<
+    RN extends string,
+    RZ extends ZodObject<ZodRawShape>,
+  >(
+    foreignKey: Columns<Z>,
+    referenceTable: SheetTable<RN, RZ>,
     referenceColumn: Columns<RZ>,
     onDelete: OnDeleteAction,
   ): this {
+    if (
+      onDelete === "set null" &&
+      !this.schema.shape[foreignKey as string].safeParse(null).success
+    ) {
+      throw new Error(
+        `Foreign key column '${foreignKey as string}' must be nullable to use set null.`,
+      );
+    }
+
     registerRelation(
       new SheetRelation(
         this as SheetTable<string, any>,

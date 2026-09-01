@@ -102,7 +102,10 @@ export class SheetDB<
   }
 
   create(records: Partial<CurrentRecord<T, N>>[]): CurrentRecord<T, N>[] {
-    if (!this.commandBuffer.isActive() && getOutgoingRelations(this.currentTable).length > 0) {
+    if (
+      !this.commandBuffer.isActive() &&
+      getOutgoingRelations(this.currentTable).length > 0
+    ) {
       return this.transaction(() => this.create(records));
     }
 
@@ -143,7 +146,10 @@ export class SheetDB<
   }
 
   update(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
-    if (!this.commandBuffer.isActive() && getOutgoingRelations(this.currentTable).length > 0) {
+    if (
+      !this.commandBuffer.isActive() &&
+      getOutgoingRelations(this.currentTable).length > 0
+    ) {
       return this.transaction(() => this.update(records));
     }
 
@@ -160,7 +166,10 @@ export class SheetDB<
   }
 
   upsert(records: Partial<CurrentRecord<T, N>>[]): CurrentRecord<T, N>[] {
-    if (!this.commandBuffer.isActive() && getOutgoingRelations(this.currentTable).length > 0) {
+    if (
+      !this.commandBuffer.isActive() &&
+      getOutgoingRelations(this.currentTable).length > 0
+    ) {
       return this.transaction(() => this.upsert(records));
     }
 
@@ -224,23 +233,19 @@ export class SheetDB<
   }
 
   delete(primaryKeyValues: unknown[]): boolean {
-    if (!this.commandBuffer.isActive() && getIncomingRelations(this.currentTable).length > 0) {
+    if (
+      !this.commandBuffer.isActive() &&
+      getIncomingRelations(this.currentTable).length > 0
+    ) {
       return this.transaction(() => this.delete(primaryKeyValues));
     }
 
-    this.deleteRecords(
-      this.currentTable,
-      primaryKeyValues,
-      new Set<string>(),
-    );
+    this.deleteRecords(this.currentTable, primaryKeyValues, new Set<string>());
     return true;
   }
 
   find(): CurrentRecord<T, N>[];
-  find<
-    U extends T[number]["name"],
-    J extends Record<string, unknown>,
-  >(
+  find<U extends T[number]["name"], J extends Record<string, unknown>>(
     query: SheetQuery<T, TableByName<T, U>["schema"], U, J>,
   ): Array<CurrentRecord<T, U> & J>;
   find(query?: SheetQuery<T, any, any, any>): Record<string, any>[] {
@@ -255,6 +260,56 @@ export class SheetDB<
       .map((record) => ({ ...record }));
     if (!query) return records;
     return this.applyQuery(query, records);
+  }
+
+  migrate(): void {
+    for (const table of this.tables) {
+      table.lock(this.cache, this.utilities);
+      try {
+        this.gateway.setColumns(
+          table.dbId,
+          table.name,
+          Object.keys(table.schema.shape),
+        );
+      } finally {
+        table.releaseLock();
+      }
+    }
+  }
+
+  seed<U extends T[number]["name"]>(
+    tableName: U,
+    records: CurrentRecord<T, U>[],
+  ): boolean {
+    const table = this.tables.find(
+      (candidate): candidate is TableByName<T, U> =>
+        candidate.name === tableName,
+    );
+    if (!table) throw new Error(`Table '${tableName}' not found.`);
+
+    this.gateway.table(table.name, table.dbId);
+    if (this.gateway.count() > 0) return false;
+
+    records.forEach((record) => table.validate(record));
+    table.lock(this.cache, this.utilities);
+    try {
+      this.gateway.insert(records as Record<string, any>[]);
+      return true;
+    } finally {
+      table.releaseLock();
+    }
+  }
+
+  protect(): void {
+    for (const table of this.tables) {
+      table.lock(this.cache, this.utilities);
+      try {
+        this.gateway.table(table.name, table.dbId);
+        this.gateway.protect();
+      } finally {
+        table.releaseLock();
+      }
+    }
   }
 
   transaction<R>(fn: () => R): R {

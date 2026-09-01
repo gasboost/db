@@ -6,6 +6,11 @@ import { DeleteCommand } from "./commands/DeleteCommand";
 import { UpdateCommand } from "./commands/UpdateCommand";
 import { SheetQuery, TableByName } from "./query/SheetQuery";
 import { CacheLike, CacheServiceLike, UtilitiesLike } from "./RuntimeTypes";
+import {
+  getIncomingRelations,
+  getOutgoingRelations,
+  SheetRelation,
+} from "./SheetRelation";
 import { SheetRecords } from "./SheetRecords";
 import { SheetTable } from "./SheetTable";
 
@@ -79,6 +84,14 @@ export class SheetDB<
   }
 
   create(records: Partial<CurrentRecord<T, N>>[]): CurrentRecord<T, N>[] {
+    if (!this.commandBuffer.isActive() && getOutgoingRelations(this.currentTable).length > 0) {
+      return this.transaction(() => this.create(records));
+    }
+
+    this.validateForeignKeys(
+      this.currentTable,
+      records as Record<string, any>[],
+    );
     const existing = this.recordsFor(this.currentTable);
     const command = new CreateCommand(
       this.gateway,
@@ -97,24 +110,31 @@ export class SheetDB<
   }
 
   update(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
-    const existing = this.recordsFor(this.currentTable);
-    const command = new UpdateCommand(
+    if (!this.commandBuffer.isActive() && getOutgoingRelations(this.currentTable).length > 0) {
+      return this.transaction(() => this.update(records));
+    }
+
+    this.validateForeignKeys(
       this.currentTable,
-      this.gateway,
-      this.cache,
-      this.utilities,
       records as Record<string, any>[],
     );
-
-    if (this.commandBuffer.isActive()) {
-      const updated = command.preview(existing);
-      this.commandBuffer.add(command);
-      return updated as CurrentRecord<T, N>[];
-    }
-    return command.execute(existing) as CurrentRecord<T, N>[];
+    const existing = this.recordsFor(this.currentTable);
+    return this.executeUpdate(
+      this.currentTable,
+      records as Record<string, any>[],
+      existing,
+    ) as CurrentRecord<T, N>[];
   }
 
   upsert(records: Partial<CurrentRecord<T, N>>[]): CurrentRecord<T, N>[] {
+    if (!this.commandBuffer.isActive() && getOutgoingRelations(this.currentTable).length > 0) {
+      return this.transaction(() => this.upsert(records));
+    }
+
+    this.validateForeignKeys(
+      this.currentTable,
+      records as Record<string, any>[],
+    );
     const existing = this.recordsFor(this.currentTable);
     const primaryKey = this.currentTable.primaryKey as string;
     const result = new Array<CurrentRecord<T, N>>(records.length);
@@ -126,7 +146,10 @@ export class SheetDB<
     records.forEach((record, index) => {
       const rawRecord = { ...record } as Record<string, any>;
       const pk = rawRecord[primaryKey];
-      const hasPk = pk !== null && pk !== undefined && !(typeof pk === "string" && pk.trim() === "");
+      const hasPk =
+        pk !== null &&
+        pk !== undefined &&
+        !(typeof pk === "string" && pk.trim() === "");
       if (hasPk && existing.getRecord(pk)) {
         updateRecords.push(rawRecord);
         updateIndexes.push(index);
@@ -137,17 +160,11 @@ export class SheetDB<
     });
 
     if (updateRecords.length > 0) {
-      const command = new UpdateCommand(
+      const updated = this.executeUpdate(
         this.currentTable,
-        this.gateway,
-        this.cache,
-        this.utilities,
         updateRecords,
+        existing,
       );
-      const updated = this.commandBuffer.isActive()
-        ? command.preview(existing)
-        : command.execute(existing);
-      if (this.commandBuffer.isActive()) this.commandBuffer.add(command);
       updated.forEach((record, index) => {
         result[updateIndexes[index]] = record as CurrentRecord<T, N>;
       });
@@ -174,20 +191,15 @@ export class SheetDB<
   }
 
   delete(primaryKeyValues: unknown[]): boolean {
-    const existing = this.recordsFor(this.currentTable);
-    const command = new DeleteCommand(
-      this.currentTable,
-      this.gateway,
-      this.cache,
-      this.utilities,
-      primaryKeyValues,
-    );
-    if (this.commandBuffer.isActive()) {
-      command.preview(existing);
-      this.commandBuffer.add(command);
-    } else {
-      command.execute(existing);
+    if (!this.commandBuffer.isActive() && getIncomingRelations(this.currentTable).length > 0) {
+      return this.transaction(() => this.delete(primaryKeyValues));
     }
+
+    this.deleteRecords(
+      this.currentTable,
+      primaryKeyValues,
+      new Set<string>(),
+    );
     return true;
   }
 
@@ -202,7 +214,9 @@ export class SheetDB<
       : this.currentTable;
     if (!table) throw new Error(`Table '${queryTableName}' not found.`);
 
-    const records = this.recordsFor(table).getValues().map((record) => ({ ...record }));
+    const records = this.recordsFor(table)
+      .getValues()
+      .map((record) => ({ ...record }));
     if (!query) return records;
     return query.cut(query.shift(query.sort(query.filter(records))));
   }
@@ -217,6 +231,121 @@ export class SheetDB<
       if (this.commandBuffer.isActive()) this.commandBuffer.abort();
       throw error;
     }
+  }
+
+  private validateForeignKeys(
+    table: SheetTable<string, any>,
+    records: Record<string, any>[],
+  ): void {
+    for (const relation of getOutgoingRelations(table)) {
+      const parentRecords = this.recordsFor(relation.parentTable).getValues();
+      for (const record of records) {
+        const value = record[relation.childKey];
+        if (value === null || value === undefined) continue;
+
+        const exists = parentRecords.some(
+          (parent) => parent[relation.parentKey] === value,
+        );
+        if (!exists) {
+          throw new Error(
+            `Foreign key violation: ${relation.childTable.name}.${relation.childKey}=${String(value)} references ${relation.parentTable.name}.${relation.parentKey}`,
+          );
+        }
+      }
+    }
+  }
+
+  private deleteRecords(
+    table: SheetTable<string, any>,
+    primaryKeyValues: unknown[],
+    visited: Set<string>,
+  ): void {
+    const visitKey = `${table.dbId}:${table.name}:${JSON.stringify(primaryKeyValues)}`;
+    if (visited.has(visitKey)) return;
+    visited.add(visitKey);
+
+    const existing = this.recordsFor(table);
+    const primaryKey = table.primaryKey as string;
+    const targets = primaryKeyValues
+      .map((value) => existing.getRecord(value))
+      .filter((record): record is Record<string, any> => Boolean(record));
+
+    for (const relation of getIncomingRelations(table)) {
+      this.applyOnDelete(relation, targets, visited);
+    }
+
+    const command = new DeleteCommand(
+      table,
+      this.gateway,
+      this.cache,
+      this.utilities,
+      primaryKeyValues,
+    );
+    if (this.commandBuffer.isActive()) {
+      command.preview(existing);
+      this.commandBuffer.add(command);
+    } else {
+      command.execute(existing);
+    }
+  }
+
+  private applyOnDelete(
+    relation: SheetRelation,
+    parentRecords: Record<string, any>[],
+    visited: Set<string>,
+  ): void {
+    if (parentRecords.length === 0) return;
+
+    const parentValues = parentRecords.map(
+      (record) => record[relation.parentKey],
+    );
+    const childRecords = this.recordsFor(relation.childTable);
+    const affected = childRecords
+      .getValues()
+      .filter((record) => parentValues.includes(record[relation.childKey]));
+    if (affected.length === 0) return;
+
+    if (relation.onDelete === "restrict") {
+      throw new Error(
+        `Delete restricted: ${relation.parentTable.name}.${relation.parentKey} is referenced by ${relation.childTable.name}.${relation.childKey}`,
+      );
+    }
+
+    if (relation.onDelete === "cascade") {
+      const childPrimaryKey = relation.childTable.primaryKey as string;
+      this.deleteRecords(
+        relation.childTable,
+        affected.map((record) => record[childPrimaryKey]),
+        visited,
+      );
+      return;
+    }
+
+    const updates = affected.map((record) => ({
+      ...record,
+      [relation.childKey]: null,
+    }));
+    this.validateForeignKeys(relation.childTable, updates);
+    this.executeUpdate(relation.childTable, updates, childRecords);
+  }
+
+  private executeUpdate(
+    table: SheetTable<string, any>,
+    records: Record<string, any>[],
+    existing: SheetRecords,
+  ): Record<string, any>[] {
+    const command = new UpdateCommand(
+      table,
+      this.gateway,
+      this.cache,
+      this.utilities,
+      records,
+    );
+    const updated = this.commandBuffer.isActive()
+      ? command.preview(existing)
+      : command.execute(existing);
+    if (this.commandBuffer.isActive()) this.commandBuffer.add(command);
+    return updated;
   }
 
   private recordsFor(table: SheetTable<string, any>): SheetRecords {

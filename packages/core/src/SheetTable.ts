@@ -1,5 +1,10 @@
 import { z, ZodObject, ZodRawShape } from "zod";
 import { CacheLike, UtilitiesLike } from "./RuntimeTypes";
+import {
+  OnDeleteAction,
+  registerRelation,
+  SheetRelation,
+} from "./SheetRelation";
 
 export type AutoNumberingMode = "increment" | "uuid";
 
@@ -66,6 +71,28 @@ export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
 
   setDbId(dbId: string) {
     (this as any).dbId = dbId;
+  }
+
+  reference<
+    K extends Columns<Z>,
+    RN extends string,
+    RZ extends ZodObject<ZodRawShape>,
+  >(
+    foreignKey: K,
+    referenceTable: SheetTable<RN, RZ>,
+    referenceColumn: Columns<RZ>,
+    onDelete: OnDeleteAction,
+  ): this {
+    registerRelation(
+      new SheetRelation(
+        this as SheetTable<string, any>,
+        foreignKey as string,
+        referenceTable as SheetTable<string, any>,
+        referenceColumn as string,
+        onDelete,
+      ),
+    );
+    return this;
   }
 
   lock(cache: CacheLike, utilities: UtilitiesLike): void {

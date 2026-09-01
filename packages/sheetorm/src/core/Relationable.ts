@@ -14,3 +14,8 @@ export interface Relationable<Z extends ZodObject<any>> {
   releaseLock(): void;
   getRelationTree(visited?: Set<SheetTable<any, any>>): SheetRelation[];
 }
+
+export type TableByName<
+  T extends readonly Relationable<any>[],
+  N extends T[number]["name"],
+> = Extract<T[number], { name: N }>;

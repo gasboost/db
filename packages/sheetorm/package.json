@@ -9,6 +9,7 @@
     "@types/google-apps-script": "^2.0.12"
   },
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   }
 }

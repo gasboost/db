@@ -1,4 +1,4 @@
-import { AccessableDataStore } from "./AccessableDataStore";
+import { AccessableDataStore } from "../../src/AccessableDataStore";
 import { Stockable } from "./InMemoryDataStore";
 
 export class InMemoryGateway implements AccessableDataStore {

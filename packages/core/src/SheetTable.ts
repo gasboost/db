@@ -117,15 +117,6 @@ export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
     referenceColumn: Columns<RZ>,
     onDelete: OnDeleteAction,
   ): this {
-    if (
-      onDelete === "set null" &&
-      !this.schema.shape[foreignKey as string].safeParse(null).success
-    ) {
-      throw new Error(
-        `Foreign key column '${foreignKey as string}' must be nullable to use set null.`,
-      );
-    }
-
     registerRelation(
       new SheetRelation(
         this as SheetTable<string, any>,

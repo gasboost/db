@@ -1,11 +1,11 @@
 {
   "name": "@gasboost/sheetorm",
   "version": "0.0.0",
-  "description": "A simple ORM for Google Sheets",
+  "description": "A type-safe Record-oriented ORM for Google Sheets",
   "author": "tiger-oshima",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gasboost/sheetorm.git",
+    "url": "git+https://github.com/gasboost/db.git",
     "directory": "packages/core"
   },
   "devDependencies": {

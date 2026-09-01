@@ -26,16 +26,17 @@ export class SheetDB<
   T extends readonly SheetTable<string, any>[],
   N extends T[number]["name"] = T[number]["name"],
 > {
-  private currentTable: TableByName<T, N>;
+  private readonly currentTable: TableByName<T, N>;
 
   constructor(
     private readonly tables: T,
     private readonly gateway: AccessableDataStore,
+    currentTable?: TableByName<T, N>,
   ) {
     if (tables.length === 0) {
       throw new Error("At least one table is required.");
     }
-    this.currentTable = tables[0] as TableByName<T, N>;
+    this.currentTable = currentTable ?? (tables[0] as TableByName<T, N>);
   }
 
   table<U extends T[number]["name"]>(name: U): SheetDB<T, U> {
@@ -46,9 +47,7 @@ export class SheetDB<
       throw new Error(`Table '${name}' not found.`);
     }
 
-    this.currentTable = table as unknown as TableByName<T, N>;
-    this.gateway.table(table.name, table.dbId);
-    return this as unknown as SheetDB<T, U>;
+    return new SheetDB<T, U>(this.tables, this.gateway, table);
   }
 
   query<U extends T[number]["name"]>(
@@ -172,11 +171,15 @@ export class SheetDB<
   ): CurrentRecord<T, U>[];
   find(query?: SheetQuery<T, any, any>): Record<string, any>[] {
     const queryTableName = query?.getTableName();
-    if (queryTableName) {
-      this.table(queryTableName);
+    const table = queryTableName
+      ? this.tables.find((candidate) => candidate.name === queryTableName)
+      : this.currentTable;
+
+    if (!table) {
+      throw new Error(`Table '${queryTableName}' not found.`);
     }
 
-    this.gateway.table(this.currentTable.name, this.currentTable.dbId);
+    this.gateway.table(table.name, table.dbId);
     const records = this.gateway.read();
     if (!query) {
       return records;

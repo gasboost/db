@@ -282,7 +282,7 @@ export class SheetDB<
     for (const [childTableName, childInputs] of Object.entries(
       input.relations ?? {},
     )) {
-      if (!childInputs || childInputs.length === 0) continue;
+      if (!childInputs) continue;
 
       const childTable = this.tables.find(
         (candidate) => candidate.name === childTableName,

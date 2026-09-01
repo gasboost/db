@@ -51,7 +51,8 @@ export class SheetDB<
     this.currentTable = currentTable ?? (tables[0] as TableByName<T, N>);
     this.cache = CacheService?.getScriptCache() ?? fallbackCache;
     this.utilities = Utilities ?? fallbackUtilities;
-    this.commandBuffer = commandBuffer ?? new CommandBuffer(gateway);
+    this.commandBuffer =
+      commandBuffer ?? new CommandBuffer(gateway, this.cache, this.utilities);
   }
 
   table<U extends T[number]["name"]>(name: U): SheetDB<T, U> {

@@ -10,9 +10,9 @@ export { SheetTable } from "./SheetTable";
 export type { AutoNumberingMode, Columns } from "./SheetTable";
 export { SheetQuery } from "./query/SheetQuery";
 export type {
-  JoinedRecord,
-  Relationable,
+  CriteriaValue,
   SheetJoin,
+  SheetQueryResult,
   TableByName,
 } from "./query/SheetQuery";
 export { SheetRelation } from "./SheetRelation";

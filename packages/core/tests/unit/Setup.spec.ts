@@ -60,6 +60,35 @@ describe("setup", () => {
     expect(db.table("users").find()).toEqual([{ id: 1, name: "Alice" }]);
   });
 
+  it("seedは空判定前にtable lockを取得する", () => {
+    const store = new InMemoryDataStore(
+      new Map([["db:users", [["id", "name"]]]]),
+    );
+    const lockValues = new Map<string, string>();
+    const cache = {
+      get: (key: string) => lockValues.get(key) ?? null,
+      put: (key: string, value: string) => void lockValues.set(key, value),
+      remove: (key: string) => void lockValues.delete(key),
+    };
+    class LockAwareGateway extends InMemoryGateway {
+      override count(): number {
+        expect(cache.get("db:users")).not.toBeNull();
+        return super.count();
+      }
+    }
+    const gateway = new LockAwareGateway(store);
+    const users = new SheetTable("db", "users", userSchema, "id", false);
+    const db = new SheetDB(
+      [users] as const,
+      gateway,
+      { getScriptCache: () => cache },
+      { getUuid: () => "uuid", sleep: () => undefined },
+    );
+
+    expect(db.seed("users", [{ id: 1, name: "Alice" }])).toBe(true);
+    expect(cache.get("db:users")).toBeNull();
+  });
+
   it("seedはデータが存在するテーブルを変更しない", () => {
     const { db } = setup();
     db.migrate();

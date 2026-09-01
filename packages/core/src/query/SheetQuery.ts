@@ -23,17 +23,40 @@ export type TableByName<
   N extends T[number]["name"],
 > = Extract<T[number], { name: N }>;
 
+export type SheetQueryResult<Q> = Q extends SheetQuery<
+  any,
+  infer Z,
+  any,
+  infer J
+>
+  ? z.infer<Z> & J
+  : never;
+
+type CompatibleColumns<
+  Z extends ZodObject<any>,
+  Value,
+> = {
+  [K in keyof z.infer<Z>]: [NonNullable<z.infer<Z>[K]>] extends [
+    NonNullable<Value>,
+  ]
+    ? [NonNullable<Value>] extends [NonNullable<z.infer<Z>[K]>]
+      ? K
+      : never
+    : never;
+}[keyof z.infer<Z>];
+
 export interface SheetJoin<T extends readonly Relationable<any>[]> {
   table: string;
   localKey: string;
   foreignKey: string;
-  query: SheetQuery<T, any, any> | null;
+  query: SheetQuery<T, any, any, any> | null;
 }
 
 export class SheetQuery<
   T extends readonly Relationable<any>[],
   Z extends ZodObject<ZodRawShape>,
   U extends T[number]["name"] = T[number]["name"],
+  J extends Record<string, unknown> = {},
 > {
   constructor(
     private requires: SheetFilter[] = [],
@@ -93,21 +116,48 @@ export class SheetQuery<
     RefName extends T[number]["name"],
     FK extends keyof z.infer<Z>,
     RefTable extends TableByName<T, RefName>,
-    RK extends keyof z.infer<RefTable["schema"]>,
+    RK extends CompatibleColumns<RefTable["schema"], z.infer<Z>[FK]>,
+    Q extends SheetQuery<T, RefTable["schema"], RefName, any> | undefined = undefined,
   >(
     thisTableColumn: FK,
     referenceTableName: RefName,
     referenceTableColumn: RK,
-    query?: SheetQuery<T, RefTable["schema"], RefName>,
-  ): this {
+    query?: Q,
+  ): SheetQuery<
+    T,
+    Z,
+    U,
+    J &
+      Record<
+        RefName,
+        Array<
+          Q extends SheetQuery<T, RefTable["schema"], RefName, any>
+            ? SheetQueryResult<Q>
+            : z.infer<RefTable["schema"]>
+        >
+      >
+  > {
     this.joins.push({
-      table: referenceTableName as any,
+      table: referenceTableName as string,
       localKey: thisTableColumn as string,
       foreignKey: referenceTableColumn as string,
-      query: query || null,
+      query: query ?? null,
     });
 
-    return this;
+    return this as unknown as SheetQuery<
+      T,
+      Z,
+      U,
+      J &
+        Record<
+          RefName,
+          Array<
+            Q extends SheetQuery<T, RefTable["schema"], RefName, any>
+              ? SheetQueryResult<Q>
+              : z.infer<RefTable["schema"]>
+          >
+        >
+    >;
   }
 
   filter(records: Record<string, any>[]): Record<string, any>[] {
@@ -136,6 +186,7 @@ export class SheetQuery<
     }
     return records;
   }
+
   cut(records: Record<string, any>[]): Record<string, any>[] {
     if (this.limitNum && this.limitNum > 0) {
       records.splice(this.limitNum);

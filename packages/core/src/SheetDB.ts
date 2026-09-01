@@ -24,6 +24,24 @@ export type CurrentRecord<
   N extends T[number]["name"],
 > = z.infer<CurrentTable<T, N>["schema"]>;
 
+export type NestedCreateInput<
+  T extends readonly SheetTable<string, any>[],
+  N extends T[number]["name"],
+> = {
+  record: Partial<CurrentRecord<T, N>>;
+  relations?: Partial<{
+    [R in T[number]["name"]]: NestedCreateInput<T, R>[];
+  }>;
+};
+
+export type NestedCreateResult<
+  T extends readonly SheetTable<string, any>[],
+  N extends T[number]["name"],
+> = CurrentRecord<T, N> &
+  Partial<{
+    [R in T[number]["name"]]: NestedCreateResult<T, R>[];
+  }>;
+
 const localCache = new Map<string, string>();
 const fallbackCache: CacheLike = {
   get: (key) => localCache.get(key) ?? null,
@@ -107,6 +125,21 @@ export class SheetDB<
       return created as CurrentRecord<T, N>[];
     }
     return command.execute(existing) as CurrentRecord<T, N>[];
+  }
+
+  createNested(
+    inputs: NestedCreateInput<T, N>[],
+  ): NestedCreateResult<T, N>[] {
+    const execute = () =>
+      inputs.map((input) =>
+        this.createNestedRecord(
+          this.currentTable,
+          input as NestedCreateInput<T, T[number]["name"]>,
+        ),
+      ) as NestedCreateResult<T, N>[];
+
+    if (this.commandBuffer.isActive()) return execute();
+    return this.transaction(execute);
   }
 
   update(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
@@ -204,10 +237,13 @@ export class SheetDB<
   }
 
   find(): CurrentRecord<T, N>[];
-  find<U extends T[number]["name"]>(
-    query: SheetQuery<T, TableByName<T, U>["schema"], U>,
-  ): CurrentRecord<T, U>[];
-  find(query?: SheetQuery<T, any, any>): Record<string, any>[] {
+  find<
+    U extends T[number]["name"],
+    J extends Record<string, unknown>,
+  >(
+    query: SheetQuery<T, TableByName<T, U>["schema"], U, J>,
+  ): Array<CurrentRecord<T, U> & J>;
+  find(query?: SheetQuery<T, any, any, any>): Record<string, any>[] {
     const queryTableName = query?.getTableName();
     const table = queryTableName
       ? this.tables.find((candidate) => candidate.name === queryTableName)
@@ -218,7 +254,7 @@ export class SheetDB<
       .getValues()
       .map((record) => ({ ...record }));
     if (!query) return records;
-    return query.cut(query.shift(query.sort(query.filter(records))));
+    return this.applyQuery(query, records);
   }
 
   transaction<R>(fn: () => R): R {
@@ -231,6 +267,101 @@ export class SheetDB<
       if (this.commandBuffer.isActive()) this.commandBuffer.abort();
       throw error;
     }
+  }
+
+  private createNestedRecord(
+    table: SheetTable<string, any>,
+    input: NestedCreateInput<T, T[number]["name"]>,
+  ): Record<string, any> {
+    const tableDb = this.table(table.name as T[number]["name"]);
+    const created = tableDb.create([
+      input.record as Partial<CurrentRecord<T, T[number]["name"]>>,
+    ])[0] as Record<string, any>;
+    const result: Record<string, any> = { ...created };
+
+    for (const [childTableName, childInputs] of Object.entries(
+      input.relations ?? {},
+    )) {
+      if (!childInputs) continue;
+
+      const childTable = this.tables.find(
+        (candidate) => candidate.name === childTableName,
+      );
+      if (!childTable) {
+        throw new Error(`Table '${childTableName}' not found.`);
+      }
+
+      const relations = getIncomingRelations(table).filter(
+        (relation) => relation.childTable === childTable,
+      );
+      if (relations.length === 0) {
+        throw new Error(
+          `Relation '${table.name} -> ${childTableName}' not found.`,
+        );
+      }
+      if (relations.length > 1) {
+        throw new Error(
+          `Relation '${table.name} -> ${childTableName}' is ambiguous.`,
+        );
+      }
+
+      const relation = relations[0];
+      const parentValue = created[relation.parentKey];
+      if (parentValue === null || parentValue === undefined) {
+        throw new Error(
+          `Parent key '${relation.parentKey}' is required for nested create.`,
+        );
+      }
+
+      result[childTableName] = (
+        childInputs as NestedCreateInput<T, T[number]["name"]>[]
+      ).map((childInput) =>
+        this.createNestedRecord(childTable, {
+          ...childInput,
+          record: {
+            ...childInput.record,
+            [relation.childKey]: parentValue,
+          },
+        }),
+      );
+    }
+
+    return result;
+  }
+
+  private applyQuery(
+    query: SheetQuery<T, any, any, any>,
+    source: Record<string, any>[],
+  ): Record<string, any>[] {
+    const filtered = query.filter(source.map((record) => ({ ...record })));
+    const sorted = query.sort(filtered);
+    const shifted = query.shift(sorted);
+    const selected = query.cut(shifted);
+
+    return selected.map((record) => {
+      const result: Record<string, any> = { ...record };
+      for (const join of query.getJoins()) {
+        const referenceTable = this.tables.find(
+          (candidate) => candidate.name === join.table,
+        );
+        if (!referenceTable) {
+          throw new Error(`Table '${join.table}' not found.`);
+        }
+
+        const joinedRecords = this.recordsFor(referenceTable)
+          .getValues()
+          .filter(
+            (candidate) =>
+              record[join.localKey] === candidate[join.foreignKey],
+          )
+          .map((candidate) => ({ ...candidate }));
+
+        result[join.table] = join.query
+          ? this.applyQuery(join.query, joinedRecords)
+          : joinedRecords;
+      }
+      return result;
+    });
   }
 
   private validateForeignKeys(

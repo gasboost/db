@@ -21,7 +21,7 @@ const runtime = () => {
     getUuid: () => `uuid-${++uuid}`,
     sleep: () => undefined,
   };
-  return { CacheService, Utilities };
+  return { cache, CacheService, Utilities };
 };
 
 const userSchema = z.object({
@@ -39,11 +39,12 @@ const createUsersDb = (rows: any[][] = []) => {
   const users = new SheetTable("db", "users", userSchema, "id", true, {
     versionColumn: "version",
   });
-  const { CacheService, Utilities } = runtime();
+  const { cache, CacheService, Utilities } = runtime();
   return {
     db: new SheetDB([users] as const, gateway, CacheService, Utilities),
     store,
     users,
+    cache,
   };
 };
 
@@ -118,8 +119,33 @@ describe("DB features", () => {
     ]);
   });
 
+  it("transaction中は対象tableのlockを保持しcommit後に解放する", () => {
+    const { db, cache } = createUsersDb([[1, "Alice", "a@example.com", 1]]);
+    const competingTable = new SheetTable("db", "users", userSchema, "id", true, {
+      versionColumn: "version",
+    });
+
+    db.transaction(() => {
+      db.table("users").update([
+        { id: 1, name: "Alicia", email: "a@example.com", version: 1 },
+      ]);
+
+      expect(cache.get("db:users")).not.toBeNull();
+      expect(() =>
+        competingTable.lock(cache, {
+          getUuid: () => "unused",
+          sleep: () => {
+            throw new Error("blocked by transaction lock");
+          },
+        }),
+      ).toThrow("blocked by transaction lock");
+    });
+
+    expect(cache.get("db:users")).toBeNull();
+  });
+
   it("transaction callbackで例外が発生したら変更しない", () => {
-    const { db } = createUsersDb([[1, "Alice", "a@example.com", 1]]);
+    const { db, cache } = createUsersDb([[1, "Alice", "a@example.com", 1]]);
     expect(() =>
       db.transaction(() => {
         db.table("users").create([
@@ -129,6 +155,7 @@ describe("DB features", () => {
       }),
     ).toThrow("rollback");
 
+    expect(cache.get("db:users")).toBeNull();
     expect(db.table("users").find()).toEqual([
       { id: 1, name: "Alice", email: "a@example.com", version: 1 },
     ]);

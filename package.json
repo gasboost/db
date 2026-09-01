@@ -7,7 +7,7 @@
   },
   "keywords": [],
   "author": "tiger-oshima",
-  "license": "MTI",
+  "license": "MIT",
   "packageManager": "pnpm@10.18.0",
   "devDependencies": {
     "typescript": "^7.0.2",

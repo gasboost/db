@@ -63,11 +63,11 @@ describe("日付判定", () => {
 });
 
 describe("ミリ秒の取得", () => {
-  it("2024年1月1日の場合は1704034800000", () => {
+  it("DateのgetTimeと同じ値を返す", () => {
     const date1 = new Date(2024, 0, 1);
     const criteria = new SheetFilterCriteria([date1]);
     const times = criteria.getTimes();
-    expect(times).toEqual([1704034800000]);
+    expect(times).toEqual([date1.getTime()]);
   });
 
   it("文字列の配列の場合はエラーを投げる", () => {

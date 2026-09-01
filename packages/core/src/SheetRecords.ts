@@ -38,7 +38,7 @@ export class SheetRecords {
     return this.values.get(pkValue) || null;
   }
 
-  remove(pkValue: string) {
+  remove(pkValue: unknown) {
     this.values.delete(pkValue);
   }
 }

@@ -1,0 +1,29 @@
+{
+  "name": "@gasboost/sheetorm",
+  "version": "0.0.0",
+  "description": "A simple ORM for Google Sheets",
+  "author": "tiger-oshima",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gasboost/sheetorm.git",
+    "directory": "packages/core"
+  },
+  "devDependencies": {
+    "@gasboost/fake-core": "^0.1.1",
+    "@gasboost/fake-node": "^0.1.1",
+    "@vitest/coverage-v8": "4.1.11"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest --watch"
+  }
+}

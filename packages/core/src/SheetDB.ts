@@ -287,12 +287,11 @@ export class SheetDB<
     );
     if (!table) throw new Error(`Table '${tableName}' not found.`);
 
-    this.gateway.table(table.name, table.dbId);
-    if (this.gateway.count() > 0) return false;
-
-    records.forEach((record) => table.validate(record));
     table.lock(this.cache, this.utilities);
     try {
+      this.gateway.table(table.name, table.dbId);
+      if (this.gateway.count() > 0) return false;
+      records.forEach((record) => table.validate(record));
       this.gateway.insert(records as Record<string, any>[]);
       return true;
     } finally {

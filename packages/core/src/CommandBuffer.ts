@@ -1,5 +1,6 @@
 import { AccessableDataStore } from "./AccessableDataStore";
 import { WriteCommand } from "./commands/WriteCommand";
+import { CacheLike, UtilitiesLike } from "./RuntimeTypes";
 import { SheetRecords } from "./SheetRecords";
 import { SheetTable } from "./SheetTable";
 
@@ -19,7 +20,11 @@ export class CommandBuffer {
   private commands: BufferedCommand[] = [];
   private states = new Map<string, TableState>();
 
-  constructor(private readonly gateway: AccessableDataStore) {}
+  constructor(
+    private readonly gateway: AccessableDataStore,
+    private readonly cache: CacheLike,
+    private readonly utilities: UtilitiesLike,
+  ) {}
 
   begin(): void {
     if (this.active) throw new Error("Nested transactions are not supported.");
@@ -37,15 +42,24 @@ export class CommandBuffer {
     const existing = this.states.get(key);
     if (existing) return existing.staged;
 
-    this.gateway.table(table.name, table.dbId);
-    const original = this.gateway.read().map((record) => ({ ...record }));
-    const state = {
-      table,
-      original,
-      staged: new SheetRecords(original.map((record) => ({ ...record })), table.primaryKey as string),
-    };
-    this.states.set(key, state);
-    return state.staged;
+    table.lock(this.cache, this.utilities);
+    try {
+      this.gateway.table(table.name, table.dbId);
+      const original = this.gateway.read().map((record) => ({ ...record }));
+      const state = {
+        table,
+        original,
+        staged: new SheetRecords(
+          original.map((record) => ({ ...record })),
+          table.primaryKey as string,
+        ),
+      };
+      this.states.set(key, state);
+      return state.staged;
+    } catch (error) {
+      table.releaseLock();
+      throw error;
+    }
   }
 
   add(command: WriteCommand): void {
@@ -91,6 +105,9 @@ export class CommandBuffer {
   }
 
   private clear(): void {
+    for (const state of this.states.values()) {
+      state.table.releaseLock();
+    }
     this.active = false;
     this.commands = [];
     this.states.clear();

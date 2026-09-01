@@ -6,7 +6,8 @@
   "devDependencies": {
     "@gasboost/fake-core": "^0.1.1",
     "@gasboost/fake-node": "^0.1.1",
-    "@types/google-apps-script": "^2.0.12"
+    "@types/google-apps-script": "^2.0.12",
+    "@types/node": "^26.4.1"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

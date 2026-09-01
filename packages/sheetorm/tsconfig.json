@@ -4,6 +4,6 @@
     "outDir": "dist",
     "rootDir": ".",
     "declaration": true,
-    "types": ["google-apps-script"]
+    "types": ["google-apps-script", "node"]
   }
 }

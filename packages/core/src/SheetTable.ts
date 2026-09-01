@@ -11,6 +11,7 @@ export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
 
   private lockToken: string | null = null;
   private lockHeld = false;
+  private lockDepth = 0;
   private lockKey: string | null = null;
   private cacheRef: CacheLike | null = null;
   public readonly versionColumn: Columns<Z> | null = null;
@@ -75,10 +76,12 @@ export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
     if (this.lockHeld && this.lockToken && this.cacheRef && this.lockKey) {
       const existing = this.cacheRef.get(this.lockKey);
       if (existing === this.lockToken) {
+        this.lockDepth += 1;
         return;
       }
       this.lockToken = null;
       this.lockHeld = false;
+      this.lockDepth = 0;
       this.lockKey = null;
       this.cacheRef = null;
     }
@@ -100,6 +103,7 @@ export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
     }
 
     this.lockHeld = true;
+    this.lockDepth = 1;
     this.lockToken = ownerToken;
     this.lockKey = lockKey;
     this.cacheRef = cache;
@@ -107,6 +111,10 @@ export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
 
   releaseLock(): void {
     if (!this.lockHeld) return;
+    if (this.lockDepth > 1) {
+      this.lockDepth -= 1;
+      return;
+    }
 
     if (
       this.lockToken &&
@@ -118,6 +126,7 @@ export class SheetTable<N extends string, Z extends ZodObject<ZodRawShape>> {
     }
     this.lockToken = null;
     this.lockHeld = false;
+    this.lockDepth = 0;
     this.lockKey = null;
     this.cacheRef = null;
   }

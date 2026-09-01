@@ -10,6 +10,11 @@ const userSchema = z.object({
   name: z.string(),
 });
 
+const postSchema = z.object({
+  id: z.number(),
+  title: z.string(),
+});
+
 const createDb = (rows: any[][] = []) => {
   const store = new InMemoryDataStore(
     new Map([["db:users", [["id", "name"], ...rows]]]),
@@ -27,6 +32,29 @@ describe("SheetDB Record CRUD", () => {
       { id: 1, name: "Alice" },
     ]);
     expect(db.table("users").find()).toEqual([{ id: 1, name: "Alice" }]);
+  });
+
+  it("tableで取得したハンドルは別テーブル選択の影響を受けない", () => {
+    const store = new InMemoryDataStore(
+      new Map([
+        ["db:users", [["id", "name"]]],
+        ["db:posts", [["id", "title"]]],
+      ]),
+    );
+    const gateway = new InMemoryGateway(store);
+    const users = new SheetTable("db", "users", userSchema, "id", false);
+    const posts = new SheetTable("db", "posts", postSchema, "id", false);
+    const db = new SheetDB([users, posts] as const, gateway);
+
+    const usersDb = db.table("users");
+    const postsDb = db.table("posts");
+
+    expect(usersDb).not.toBe(postsDb);
+    usersDb.create([{ id: 1, name: "Alice" }]);
+    postsDb.create([{ id: 10, title: "Hello" }]);
+
+    expect(usersDb.find()).toEqual([{ id: 1, name: "Alice" }]);
+    expect(postsDb.find()).toEqual([{ id: 10, title: "Hello" }]);
   });
 
   it("updateはprimary keyで既存Recordを更新する", () => {

@@ -1,21 +1,18 @@
+import { z } from "zod";
 import { SheetRecords } from "../core/SheetRecords";
 import { SheetTable } from "../core/SheetTable";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
-import { WriteCommand } from "./WriteCommand";
+import { RecordWithRelations, WriteCommand } from "./WriteCommand";
 
-type CreateParams = Record<string, any> & {
-  relations?: Partial<Record<string, Record<string, any>[]>>;
-};
-
-export class CreateCommand extends WriteCommand {
-  private diff: Record<string, any>[] = [];
+export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
+  private diff: z.output<Z>[] = [];
   private relationParams: Partial<Record<string, Record<string, any>[]>>[] = [];
   constructor(
     gateway: AccessableDataStore,
-    table: SheetTable<any, any>,
+    table: SheetTable<string, Z>,
     CacheService: GoogleAppsScript.Cache.CacheService,
     Utilities: GoogleAppsScript.Utilities.Utilities,
-    params: CreateParams[],
+    params: RecordWithRelations<z.output<Z>>[],
   ) {
     super(gateway, table, CacheService, Utilities);
     const normalized = params.map((param) => {
@@ -33,7 +30,8 @@ export class CreateCommand extends WriteCommand {
 
     if (this.table.autoNumberingMode === "uuid") {
       normalized.forEach((param) => {
-        param[this.table.primaryKey as string] = this.Utilities.getUuid();
+        const record = param as Record<string, any>;
+        record[this.table.primaryKey as string] = this.Utilities.getUuid();
         this.diff.push(param);
       });
       return;
@@ -74,7 +72,8 @@ export class CreateCommand extends WriteCommand {
 
     // パラメーターにIDを振る
     normalized.forEach((param, index) => {
-      param[this.table.primaryKey as string] = start + 1 + index;
+      const record = param as Record<string, any>;
+      record[this.table.primaryKey as string] = start + 1 + index;
       this.diff.push(param);
     });
   }
@@ -332,8 +331,14 @@ export class CreateCommand extends WriteCommand {
 
         const childTable = relation.childTable as SheetTable<any, any>;
 
-        record.relations ??= {};
-        record.relations[relationName] = [];
+        const resultRecord = record as RecordWithRelations<z.output<Z>>;
+
+        const relations = (resultRecord.relations ??= {} as Record<
+          string,
+          Record<string, any>[]
+        >);
+
+        relations[relationName] = [];
 
         children.forEach((child) => {
           if (
@@ -348,7 +353,7 @@ export class CreateCommand extends WriteCommand {
             [relation.childKey]: parentKeyValue,
           };
 
-          record.relations[relationName].push(childRecord);
+          relations[relationName].push(childRecord);
         });
       });
     });

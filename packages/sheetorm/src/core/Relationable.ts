@@ -13,6 +13,7 @@ export interface Relationable<Z extends ZodObject<any>> {
   ): void;
   releaseLock(): void;
   getRelationTree(visited?: Set<SheetTable<any, any>>): SheetRelation[];
+  getChildren(): readonly SheetRelation[];
 }
 
 export type TableByName<

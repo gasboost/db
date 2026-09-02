@@ -12,18 +12,35 @@ export class SheetRelation {
 
   delete(
     records: Record<string, any>[],
-    pkValues: any[],
+    parentKeyValues: any[],
   ): Record<string, any>[] {
-    // それ以外はそのまま返す
-    const deleted = records.reduce((acc, record) => {
-      const parentDeleted = pkValues.includes(record[this.childKey]);
-      if (parentDeleted && this.onDelete === "cascade") return acc;
-      if (parentDeleted && this.onDelete === "set null")
-        record[this.childKey] = null;
+    const relatedRecords = records.filter((record) =>
+      parentKeyValues.includes(record[this.childKey]),
+    );
+
+    if (this.onDelete === "restrict" && relatedRecords.length > 0) {
+      throw new Error(
+        `Delete restricted by relation '${this.childTable.name}.${this.childKey}'.`,
+      );
+    }
+
+    return records.reduce<Record<string, any>[]>((acc, record) => {
+      const parentDeleted = parentKeyValues.includes(record[this.childKey]);
+
+      if (parentDeleted && this.onDelete === "cascade") {
+        return acc;
+      }
+
+      if (parentDeleted && this.onDelete === "set null") {
+        acc.push({
+          ...record,
+          [this.childKey]: null,
+        });
+        return acc;
+      }
 
       acc.push(record);
       return acc;
     }, []);
-    return deleted as Record<string, any>[];
   }
 }

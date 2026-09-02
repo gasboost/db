@@ -110,6 +110,10 @@ export class SheetTable<
     return result;
   }
 
+  getChildren(): readonly SheetRelation[] {
+    return this.relations;
+  }
+
   lock(
     cache: GoogleAppsScript.Cache.Cache,
     utilities: GoogleAppsScript.Utilities.Utilities,

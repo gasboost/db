@@ -16,48 +16,140 @@ export class DeleteCommand extends WriteCommand {
   }
 
   execute(exsist: SheetRecords): void {
-    if (!exsist) {
-      throw new Error("Exsist data is required for delete");
-    }
-    this.gateway.table(this.table.name, this.table.dbId);
-    const previousRecords = exsist.getValues();
-    this.pkValues.forEach((pkValue) => exsist.remove(pkValue));
-    this.table.lock(this.Cache, this.Utilities);
-    this.gateway.rewrite(exsist.getValues(), previousRecords);
-    const relations = this.table.getRelationTree();
-    if (relations.length === 0) {
-      this.table.releaseLock();
-      return;
-    }
+    const originalRecords = new Map<string, Record<string, any>[]>();
+    const currentRecords = new Map<string, Record<string, any>[]>();
+    const affectedTables = new Map<string, Relationable<any>>();
 
-    const uniqueChildren = new Map<string, Relationable<any>>();
-    relations.forEach((relation) => {
-      const key = `${relation.childTable.dbId}:${relation.childTable.name}`;
-      if (!uniqueChildren.has(key)) {
-        uniqueChildren.set(key, relation.childTable);
+    const rootKey = `${this.table.dbId}:${this.table.name}`;
+    const rootRecords = exsist.getValues();
+
+    originalRecords.set(rootKey, rootRecords);
+    currentRecords.set(rootKey, rootRecords);
+    affectedTables.set(rootKey, this.table);
+
+    const deleteRecords = (
+      table: Relationable<any>,
+      targets: Record<string, any>[],
+      visited: Set<string>,
+    ): void => {
+      const tableKey = `${table.dbId}:${table.name}`;
+
+      if (visited.has(tableKey)) {
+        return;
       }
-    });
 
-    const orderedChildren = Array.from(uniqueChildren.values()).sort((a, b) => {
+      const nextVisited = new Set(visited);
+      nextVisited.add(tableKey);
+
+      affectedTables.set(tableKey, table);
+
+      for (const relation of table.getChildren()) {
+        const parentKeyValues = targets
+          .map((record) => record[relation.parentKey])
+          .filter((value) => value !== null && value !== undefined);
+
+        if (parentKeyValues.length === 0) {
+          continue;
+        }
+
+        const childTable = relation.childTable;
+        const childTableKey = `${childTable.dbId}:${childTable.name}`;
+
+        affectedTables.set(childTableKey, childTable);
+
+        if (!currentRecords.has(childTableKey)) {
+          this.gateway.table(childTable.name, childTable.dbId);
+
+          const records = this.gateway.read();
+
+          originalRecords.set(childTableKey, records);
+          currentRecords.set(childTableKey, records);
+        }
+
+        const childRecords = currentRecords.get(childTableKey)!;
+
+        const relatedChildren = childRecords.filter((record) =>
+          parentKeyValues.includes(record[relation.childKey]),
+        );
+
+        if (relatedChildren.length === 0) {
+          continue;
+        }
+
+        if (relation.onDelete === "restrict") {
+          throw new Error(
+            `Delete restricted by relation '${childTable.name}.${relation.childKey}'.`,
+          );
+        }
+
+        if (relation.onDelete === "cascade") {
+          deleteRecords(childTable, relatedChildren, nextVisited);
+          continue;
+        }
+
+        if (relation.onDelete === "set null") {
+          currentRecords.set(
+            childTableKey,
+            childRecords.map((record) => {
+              if (!parentKeyValues.includes(record[relation.childKey])) {
+                return record;
+              }
+
+              return {
+                ...record,
+                [relation.childKey]: null,
+              };
+            }),
+          );
+        }
+      }
+
+      const latestRecords = currentRecords.get(tableKey)!;
+
+      const targetPrimaryKeys = targets.map(
+        (record) => record[table.primaryKey as string],
+      );
+
+      currentRecords.set(
+        tableKey,
+        latestRecords.filter(
+          (record) =>
+            !targetPrimaryKeys.includes(record[table.primaryKey as string]),
+        ),
+      );
+    };
+
+    const targetRecords = rootRecords.filter((record) =>
+      this.pkValues.includes(record[this.table.primaryKey as string]),
+    );
+
+    deleteRecords(this.table, targetRecords, new Set());
+
+    const orderedTables = Array.from(affectedTables.values()).sort((a, b) => {
       const aKey = `${a.dbId}:${a.name}`;
       const bKey = `${b.dbId}:${b.name}`;
+
       return aKey.localeCompare(bKey);
     });
 
-    orderedChildren.forEach((table) => table.lock(this.Cache, this.Utilities));
+    orderedTables.forEach((table) => table.lock(this.Cache, this.Utilities));
 
     try {
-      for (const relation of relations) {
-        this.gateway.table(relation.childTable.name, relation.childTable.dbId);
-        const childRecords = this.gateway.read();
-        const deletedChildRecords = relation.delete(
-          childRecords,
-          this.pkValues,
-        );
-        this.gateway.rewrite(deletedChildRecords, childRecords);
+      for (const table of orderedTables) {
+        const tableKey = `${table.dbId}:${table.name}`;
+
+        const previous = originalRecords.get(tableKey);
+        const next = currentRecords.get(tableKey);
+
+        if (!previous || !next) {
+          continue;
+        }
+
+        this.gateway.table(table.name, table.dbId);
+        this.gateway.rewrite(next, previous);
       }
     } finally {
-      orderedChildren
+      orderedTables
         .slice()
         .reverse()
         .forEach((table) => table.releaseLock());

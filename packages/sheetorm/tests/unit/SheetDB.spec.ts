@@ -1,6 +1,6 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
 import { NodeUtilities } from "@gasboost/fake-node";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { DeleteCommand } from "../../src/commands/DeleteCommand";
 import { SheetDB } from "../../src/core/SheetDB";
@@ -623,5 +623,99 @@ describe("SheetDB", () => {
 
     expect(store.get("db:users").rows).toEqual([]);
     expect(store.get("db:employees").rows).toEqual([]);
+  });
+
+  describe("migrate", () => {
+    it("各migration対象table自身をlockしてreleaseする", () => {
+      const userSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        name: z.string(),
+      });
+
+      const postSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        title: z.string(),
+      });
+
+      const userTable = new SheetTable("db", "users", userSchema, "id", false);
+
+      const postTable = new SheetTable("db", "posts", postSchema, "id", false);
+
+      const store = new InMemoryDataStore(
+        new Map([
+          ["db:users", [["id", "name"]]],
+          ["db:posts", [["id", "title"]]],
+        ]),
+      );
+
+      const db = new SheetDB(
+        [userTable, postTable] as const,
+        new InMemoryGateway(store),
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+      );
+
+      const userLock = vi.spyOn(userTable, "lock");
+      const userRelease = vi.spyOn(userTable, "releaseLock");
+      const postLock = vi.spyOn(postTable, "lock");
+      const postRelease = vi.spyOn(postTable, "releaseLock");
+
+      // _table を users にしておく。
+      // 旧実装だと users が2回lockされて posts がlockされない。
+      db.table("users");
+
+      db.migrate();
+
+      expect(userLock).toHaveBeenCalledTimes(1);
+      expect(userRelease).toHaveBeenCalledTimes(1);
+      expect(postLock).toHaveBeenCalledTimes(1);
+      expect(postRelease).toHaveBeenCalledTimes(1);
+    });
+  });
+  describe("seed", () => {
+    it("lock取得後に空判定してinsertする", () => {
+      const schema = z.object({
+        id: z.number().meta({ primary: true }),
+        name: z.string(),
+      });
+
+      const table = new SheetTable("db", "users", schema, "id", false);
+
+      const store = new InMemoryDataStore(
+        new Map([["db:users", [["id", "name"]]]]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+
+      const db = new SheetDB(
+        [table] as const,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+      );
+
+      const calls: string[] = [];
+
+      vi.spyOn(table, "lock").mockImplementation(() => {
+        calls.push("lock");
+      });
+
+      vi.spyOn(gateway, "count").mockImplementation(() => {
+        calls.push("count");
+        return 0;
+      });
+
+      vi.spyOn(gateway, "insert").mockImplementation(() => {
+        calls.push("insert");
+      });
+
+      vi.spyOn(table, "releaseLock").mockImplementation(() => {
+        calls.push("release");
+      });
+
+      db.seed("users", [{ id: 1, name: "user" }]);
+
+      expect(calls).toEqual(["lock", "count", "insert", "release"]);
+    });
   });
 });

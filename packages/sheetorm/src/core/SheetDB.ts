@@ -436,33 +436,35 @@ export class SheetDB<
   migrate() {
     for (const table of this.tables) {
       const columns = table.schema.keyof().options;
-      this._table.lock(this.cache, this.Utilities);
+
+      table.lock(this.cache, this.Utilities);
+
       try {
         this.gateway.setColumns(table.dbId, table.name, columns);
       } finally {
-        this._table.releaseLock();
+        table.releaseLock();
       }
     }
-    return;
   }
-
   seed<U extends T[number]["name"]>(
     tableName: U,
     datas: z.infer<TableByName<T, U>["schema"]>[],
   ) {
     this.table(tableName);
     this.gateway.table(this._table.name, this._table.dbId);
-    if (this.gateway.count() > 0) {
-      console.error(`Table '${tableName}' is not empty. Seed failed.`);
-      return;
-    }
+
     this._table.lock(this.cache, this.Utilities);
+
     try {
+      if (this.gateway.count() > 0) {
+        console.error(`Table '${tableName}' is not empty. Seed failed.`);
+        return;
+      }
+
       this.gateway.insert(datas);
     } finally {
       this._table.releaseLock();
     }
-    return;
   }
 
   protect() {

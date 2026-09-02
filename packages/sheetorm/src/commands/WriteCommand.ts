@@ -14,3 +14,7 @@ export abstract class WriteCommand {
   }
   abstract execute(exsist: SheetRecords): void;
 }
+
+export type RecordWithRelations<R> = R & {
+  relations?: Record<string, Record<string, any>[]>;
+};

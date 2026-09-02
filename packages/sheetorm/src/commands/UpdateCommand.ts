@@ -1,20 +1,21 @@
+import { z } from "zod";
 import { SheetRecords } from "../core/SheetRecords";
 import { SheetTable } from "../core/SheetTable";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
 import { WriteCommand } from "./WriteCommand";
 
-export class UpdateCommand extends WriteCommand {
+export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
   constructor(
-    table: SheetTable<any, any>,
+    table: SheetTable<any, Z>,
     gateway: AccessableDataStore,
     CacheService: GoogleAppsScript.Cache.CacheService,
     Utilities: GoogleAppsScript.Utilities.Utilities,
-    private records: Record<string, any>[],
+    private records: z.output<Z>[],
   ) {
     super(gateway, table, CacheService, Utilities);
   }
 
-  preview(exsist: SheetRecords): Record<string, any>[] {
+  preview(exsist: SheetRecords): z.output<Z>[] {
     const uniqueValues = exsist.uniqueValues(this.table.getUniqueColumns());
     const updatedRecords = this.records.map((record) => ({ ...record }));
 
@@ -57,7 +58,8 @@ export class UpdateCommand extends WriteCommand {
           );
         }
 
-        record[versionColumn] = previousVersion + 1;
+        const currentRecord = record as Record<string, any>;
+        currentRecord[versionColumn] = previousVersion + 1;
       }
       exsist.replace(record);
     });
@@ -65,7 +67,7 @@ export class UpdateCommand extends WriteCommand {
     return updatedRecords;
   }
 
-  execute(exsist: SheetRecords): Record<string, any>[] {
+  execute(exsist: SheetRecords): z.output<Z>[] {
     this.gateway.table(this.table.name, this.table.dbId);
     this.table.lock(this.Cache, this.Utilities);
     const updatedRecords = this.preview(exsist);

@@ -35,7 +35,7 @@ describe("Command coverage", () => {
     cacheService.getScriptCache().put("db:users:autoIncrement", "not-json");
 
     const command = new CreateCommand(gateway, table, cacheService, utilities, [
-      { name: "b" },
+      { name: "b", id: 0 },
     ]);
 
     const diff = command.getDiff();
@@ -75,8 +75,8 @@ describe("Command coverage", () => {
     );
 
     const command = new CreateCommand(gateway, table, cacheService, utilities, [
-      { name: "b" },
-      { name: "c" },
+      { name: "b", id: 0 },
+      { name: "c", id: 0 },
     ]);
 
     const diff = command.getDiff();
@@ -106,7 +106,7 @@ describe("Command coverage", () => {
     const utilities = new NodeUtilities();
 
     const command = new CreateCommand(gateway, table, cacheService, utilities, [
-      { name: "b" },
+      { name: "b", id: 0 },
     ]);
 
     const diff = command.getDiff();
@@ -156,7 +156,10 @@ describe("Command coverage", () => {
       table,
       new InMemoryCacheService(),
       utilities,
-      [{ name: "b" }, { name: "c" }],
+      [
+        { name: "b", id: "" },
+        { name: "c", id: "" },
+      ],
     );
 
     const diff = command.getDiff();
@@ -217,6 +220,7 @@ describe("Command coverage", () => {
           relations: {
             children: [{ name: "child-a" }, { name: "child-b" }],
           },
+          id: "",
         },
       ],
     );
@@ -302,6 +306,7 @@ describe("Command coverage", () => {
           relations: {
             children: [{ name: "child-a" }, { name: "child-b" }],
           },
+          id: "",
         },
       ],
     );
@@ -309,18 +314,17 @@ describe("Command coverage", () => {
     const preview = command.getDiff();
 
     expect(preview[0].id).toBe("parent-uuid");
-    expect(preview[0].relations.children.map((child: any) => child.id)).toEqual(
-      ["child-a-uuid", "child-b-uuid"],
-    );
+    expect(
+      (preview[0] as any).relations.children.map((child: any) => child.id),
+    ).toEqual(["child-a-uuid", "child-b-uuid"]);
 
     command.execute(exsist);
 
     const result = command.getDiff();
 
-    expect(result[0].relations.children.map((child: any) => child.id)).toEqual([
-      "child-a-uuid",
-      "child-b-uuid",
-    ]);
+    expect(
+      (result[0] as any).relations.children.map((child: any) => child.id),
+    ).toEqual(["child-a-uuid", "child-b-uuid"]);
 
     expect(getUuid).toHaveBeenCalledTimes(3);
   });
@@ -339,7 +343,7 @@ describe("Command coverage", () => {
     const utilities = new NodeUtilities();
 
     const command = new CreateCommand(gateway, table, cacheService, utilities, [
-      { name: "first" },
+      { name: "first", id: 0 },
     ]);
 
     const diff = command.getDiff();

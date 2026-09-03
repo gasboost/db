@@ -1105,5 +1105,49 @@ describe("Command coverage", () => {
       expect(store.get("db:a").rows).toEqual([]);
       expect(store.get("db:b").rows).toEqual([]);
     });
+
+    it("自己参照cascadeで子・孫まで削除する", () => {
+      const schema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number().nullable(),
+      });
+
+      const table = new SheetTable("db", "categories", schema, "id", false);
+
+      table.reference("parentId", table, "id", "cascade");
+
+      const store = new InMemoryDataStore(
+        new Map([
+          [
+            "db:categories",
+            [
+              ["id", "parentId"],
+              [1, null],
+              [2, 1],
+              [3, 2],
+              [4, null],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("categories", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        table.primaryKey as string,
+      );
+
+      new DeleteCommand(
+        table,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+        [1],
+      ).execute(records);
+
+      expect(store.get("db:categories").rows).toEqual([[4, null]]);
+    });
   });
 });

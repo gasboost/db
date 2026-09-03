@@ -1,5 +1,6 @@
 {
   "name": "root",
+  "packageManager": "pnpm@10.18.0",
   "devDependencies": {
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"

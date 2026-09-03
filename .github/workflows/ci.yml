@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck sheetorm
+        run: pnpm --filter @gasboost/sheetorm typecheck
+
+      - name: Test sheetorm
+        run: pnpm --filter @gasboost/sheetorm test
+
+      - name: Build sheetorm
+        run: pnpm --filter @gasboost/sheetorm build
+
+      - name: Pack and smoke test sheetorm
+        run: |
+          pnpm --filter @gasboost/sheetorm pack
+
+          PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-sheetorm-*.tgz' -print -quit)"
+
+          rm -rf /tmp/sheetorm-consumer
+          mkdir -p /tmp/sheetorm-consumer
+          cd /tmp/sheetorm-consumer
+
+          pnpm init
+          pnpm add "$PACKAGE_FILE"
+          pnpm add -D typescript @types/google-apps-script
+
+          cat > index.ts <<'EOF'
+          import {
+          SheetDB,
+          SheetGateway,
+          SheetTable,
+          } from "@gasboost/sheetorm";
+
+          console.log(
+          typeof SheetDB,
+          typeof SheetGateway,
+          typeof SheetTable,
+          );
+          EOF
+
+          cat > tsconfig.json <<'EOF'
+          {
+          "compilerOptions": {
+              "target": "ES2022",
+              "strict": true,
+              "types": ["google-apps-script"],
+              "skipLibCheck": true
+          },
+          "include": ["index.ts"]
+          }
+          EOF
+
+          pnpm exec tsc --noEmit
+          pnpm exec tsc
+          node index.js

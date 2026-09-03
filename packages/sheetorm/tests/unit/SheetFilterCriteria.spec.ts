@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SheetFilterCriteria } from "../../src/query/SheetFilterCriteria";
 
 describe("初期化", () => {
@@ -63,8 +63,17 @@ describe("日付判定", () => {
 });
 
 describe("ミリ秒の取得", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+
+    vi.setSystemTime(new Date("2024-01-01T00:00:00+09:00"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it("2024年1月1日の場合は1704034800000", () => {
-    const date1 = new Date(2024, 0, 1);
+    const date1 = new Date("2024-01-01T00:00:00+09:00");
     const criteria = new SheetFilterCriteria([date1]);
     const times = criteria.getTimes();
     expect(times).toEqual([1704034800000]);

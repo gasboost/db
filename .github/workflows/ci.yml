@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck sheetorm
+        run: pnpm --filter @gasboost/sheetorm typecheck
+
+      - name: Test sheetorm
+        run: pnpm --filter @gasboost/sheetorm test
+
+      - name: Build sheetorm
+        run: pnpm --filter @gasboost/sheetorm build
+
+      - name: Smoke test sheetorm
+        run: |
+          node -e "
+            const sheetorm = require('./packages/sheetorm/dist/src/index.js');
+
+            if (!sheetorm.SheetDB) {
+              throw new Error('SheetDB is not exported');
+            }
+
+            if (!sheetorm.SheetTable) {
+              throw new Error('SheetTable is not exported');
+            }
+
+            if (!sheetorm.SheetGateway) {
+              throw new Error('SheetGateway is not exported');
+            }
+          "
+
+      - name: Verify sheetorm package contents
+        run: |
+          pnpm --filter @gasboost/sheetorm pack
+
+          tar -tzf gasboost-sheetorm-*.tgz > /tmp/sheetorm-package-files.txt
+
+          cat /tmp/sheetorm-package-files.txt
+
+          if grep -q "package/dist/tests/" /tmp/sheetorm-package-files.txt; then
+            echo "tests must not be included in package"
+            exit 1
+          fi
+
+          if grep -q "package/src/" /tmp/sheetorm-package-files.txt; then
+            echo "source files must not be included in package"
+            exit 1
+          fi
+
+          if grep -q "\.map$" /tmp/sheetorm-package-files.txt; then
+            echo "source maps must not be included in package"
+            exit 1
+          fi
+
+          grep -q "package/dist/src/index.js" /tmp/sheetorm-package-files.txt
+          grep -q "package/dist/src/index.d.ts" /tmp/sheetorm-package-files.txt
+          grep -q "package/package.json" /tmp/sheetorm-package-files.txt
+          grep -q "package/README.md" /tmp/sheetorm-package-files.txt

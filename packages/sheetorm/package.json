@@ -1,5 +1,36 @@
 {
   "name": "@gasboost/sheetorm",
+  "version": "0.1.0",
+  "description": "Type-safe ORM for Google Sheets and Google Apps Script powered by Zod",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gasboost/db.git",
+    "directory": "packages/sheetorm"
+  },
+  "license": "MIT",
+  "author": "tiger-oshima",
+  "keywords": [
+    "google-apps-script",
+    "google-sheets",
+    "gas",
+    "orm",
+    "zod",
+    "typescript"
+  ],
+  "type": "commonjs",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "require": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
   "dependencies": {
     "zod": "^4.5.4"
   },
@@ -11,6 +42,11 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "pack:check": "pnpm pack"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

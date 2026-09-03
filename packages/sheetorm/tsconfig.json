@@ -5,5 +5,7 @@
     "rootDir": ".",
     "declaration": true,
     "types": ["google-apps-script", "node"]
-  }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

@@ -38,48 +38,48 @@ jobs:
       - name: Build sheetorm
         run: pnpm --filter @gasboost/sheetorm build
 
-      - name: Smoke test sheetorm
-        run: |
-          node -e "
-            const sheetorm = require('./packages/sheetorm/dist/src/index.js');
-
-            if (!sheetorm.SheetDB) {
-              throw new Error('SheetDB is not exported');
-            }
-
-            if (!sheetorm.SheetTable) {
-              throw new Error('SheetTable is not exported');
-            }
-
-            if (!sheetorm.SheetGateway) {
-              throw new Error('SheetGateway is not exported');
-            }
-          "
-
-      - name: Verify sheetorm package contents
+      - name: Pack and smoke test sheetorm
         run: |
           pnpm --filter @gasboost/sheetorm pack
 
-          tar -tzf gasboost-sheetorm-*.tgz > /tmp/sheetorm-package-files.txt
+          PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-sheetorm-*.tgz' -print -quit)"
 
-          cat /tmp/sheetorm-package-files.txt
+          rm -rf /tmp/sheetorm-consumer
+          mkdir -p /tmp/sheetorm-consumer
+          cd /tmp/sheetorm-consumer
 
-          if grep -q "package/dist/tests/" /tmp/sheetorm-package-files.txt; then
-            echo "tests must not be included in package"
-            exit 1
-          fi
+          pnpm init
+          pnpm add "$PACKAGE_FILE"
+          pnpm add -D typescript @types/google-apps-script
 
-          if grep -q "package/src/" /tmp/sheetorm-package-files.txt; then
-            echo "source files must not be included in package"
-            exit 1
-          fi
+          cat > index.ts <<'EOF'
+          import {
+          SheetDB,
+          SheetGateway,
+          SheetTable,
+          } from "@gasboost/sheetorm";
 
-          if grep -q "\.map$" /tmp/sheetorm-package-files.txt; then
-            echo "source maps must not be included in package"
-            exit 1
-          fi
+          console.log(
+          typeof SheetDB,
+          typeof SheetGateway,
+          typeof SheetTable,
+          );
+          EOF
 
-          grep -q "package/dist/src/index.js" /tmp/sheetorm-package-files.txt
-          grep -q "package/dist/src/index.d.ts" /tmp/sheetorm-package-files.txt
-          grep -q "package/package.json" /tmp/sheetorm-package-files.txt
-          grep -q "package/README.md" /tmp/sheetorm-package-files.txt
+          cat > tsconfig.json <<'EOF'
+          {
+          "compilerOptions": {
+              "target": "ES2022",
+              "module": "CommonJS",
+              "moduleResolution": "node",
+              "strict": true,
+              "types": ["google-apps-script"],
+              "skipLibCheck": true
+          },
+          "include": ["index.ts"]
+          }
+          EOF
+
+          pnpm exec tsc --noEmit
+          pnpm exec tsc
+          node index.js

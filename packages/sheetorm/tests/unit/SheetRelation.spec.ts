@@ -96,7 +96,7 @@ describe("set null削除", () => {
 });
 
 describe("restrict削除", () => {
-  it("userId=1の親が削除された時、restrictに設定していれば、元のレコードがそのまま返る", () => {
+  it("削除対象の親を参照するレコードが存在する場合は削除を拒否する", () => {
     const relation = new SheetRelation("id", {} as any, "userId", "restrict");
 
     const records = [
@@ -104,13 +104,10 @@ describe("restrict削除", () => {
       { id: 2, userId: 2 },
     ];
 
-    expect(relation.delete(records, [1])).toEqual([
-      { id: 1, userId: 1 },
-      { id: 2, userId: 2 },
-    ]);
+    expect(() => relation.delete(records, [1])).toThrow();
   });
 
-  it("userId=1の親が削除された時、restrictに設定していれば、元のレコードがそのまま返る（複数レコード）", () => {
+  it("削除対象の親を参照するレコードが複数存在する場合も削除を拒否する", () => {
     const relation = new SheetRelation("id", {} as any, "userId", "restrict");
 
     const records = [
@@ -121,16 +118,10 @@ describe("restrict削除", () => {
       { id: 5, userId: 1 },
     ];
 
-    expect(relation.delete(records, [1])).toEqual([
-      { id: 1, userId: 1 },
-      { id: 2, userId: 2 },
-      { id: 3, userId: 1 },
-      { id: 4, userId: 2 },
-      { id: 5, userId: 1 },
-    ]);
+    expect(() => relation.delete(records, [1])).toThrow();
   });
 
-  it("userId=3の親が削除された時、restrictに設定しているが、userId=3のレコードなければそのまま返す", () => {
+  it("削除対象の親を参照するレコードが存在しなければ元のレコードを返す", () => {
     const relation = new SheetRelation("id", {} as any, "userId", "restrict");
 
     const records = [

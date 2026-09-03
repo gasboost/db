@@ -574,22 +574,580 @@ describe("Command coverage", () => {
     ]);
   });
 
-  it("DeleteCommand throws when exsist is missing", () => {
-    const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+  describe("DeleteCommandの参照整合性", () => {
+    it("restrict対象の子Recordが存在する場合は親を削除せず親子とも変更しない", () => {
+      const parentSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        name: z.string(),
+      });
+      const childSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number(),
+        name: z.string(),
+      });
 
-    const command = new DeleteCommand(
-      table,
-      new InMemoryGateway(
-        new InMemoryDataStore(new Map([["db:users", [["id"], [1]]]])),
-      ),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-      [1],
-    );
+      const parentTable = new SheetTable(
+        "db",
+        "parents",
+        parentSchema,
+        "id",
+        false,
+      );
+      const childTable = new SheetTable(
+        "db",
+        "children",
+        childSchema,
+        "id",
+        false,
+      );
 
-    expect(() => command.execute(undefined as any)).toThrow(
-      "Exsist data is required for delete",
-    );
+      childTable.reference("parentId", parentTable, "id", "restrict");
+
+      const store = new InMemoryDataStore(
+        new Map([
+          [
+            "db:parents",
+            [
+              ["id", "name"],
+              [1, "parent"],
+            ],
+          ],
+          [
+            "db:children",
+            [
+              ["id", "parentId", "name"],
+              [10, 1, "child"],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("parents", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        parentTable.primaryKey as string,
+      );
+
+      const command = new DeleteCommand(
+        parentTable,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+        [1],
+      );
+
+      expect(() => command.execute(records)).toThrow();
+
+      expect(store.get("db:parents").rows).toEqual([[1, "parent"]]);
+      expect(store.get("db:children").rows).toEqual([[10, 1, "child"]]);
+    });
+
+    it("restrict対象の子Recordが存在しない場合は親を削除できる", () => {
+      const parentSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        name: z.string(),
+      });
+      const childSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number(),
+        name: z.string(),
+      });
+
+      const parentTable = new SheetTable(
+        "db",
+        "parents",
+        parentSchema,
+        "id",
+        false,
+      );
+      const childTable = new SheetTable(
+        "db",
+        "children",
+        childSchema,
+        "id",
+        false,
+      );
+
+      childTable.reference("parentId", parentTable, "id", "restrict");
+
+      const store = new InMemoryDataStore(
+        new Map([
+          [
+            "db:parents",
+            [
+              ["id", "name"],
+              [1, "parent-1"],
+              [2, "parent-2"],
+            ],
+          ],
+          [
+            "db:children",
+            [
+              ["id", "parentId", "name"],
+              [10, 2, "child"],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("parents", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        parentTable.primaryKey as string,
+      );
+
+      const command = new DeleteCommand(
+        parentTable,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+        [1],
+      );
+
+      command.execute(records);
+
+      expect(store.get("db:parents").rows).toEqual([[2, "parent-2"]]);
+      expect(store.get("db:children").rows).toEqual([[10, 2, "child"]]);
+    });
+
+    it("cascadeは子・孫・曾孫までそれぞれ直前の親キーを使って削除する", () => {
+      const parentSchema = z.object({
+        id: z.number().meta({ primary: true }),
+      });
+      const childSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number(),
+      });
+      const grandChildSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        childId: z.number(),
+      });
+      const greatGrandChildSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        grandChildId: z.number(),
+      });
+
+      const parentTable = new SheetTable(
+        "db",
+        "parents",
+        parentSchema,
+        "id",
+        false,
+      );
+      const childTable = new SheetTable(
+        "db",
+        "children",
+        childSchema,
+        "id",
+        false,
+      );
+      const grandChildTable = new SheetTable(
+        "db",
+        "grand_children",
+        grandChildSchema,
+        "id",
+        false,
+      );
+      const greatGrandChildTable = new SheetTable(
+        "db",
+        "great_grand_children",
+        greatGrandChildSchema,
+        "id",
+        false,
+      );
+
+      childTable.reference("parentId", parentTable, "id", "cascade");
+      grandChildTable.reference("childId", childTable, "id", "cascade");
+      greatGrandChildTable.reference(
+        "grandChildId",
+        grandChildTable,
+        "id",
+        "cascade",
+      );
+
+      const store = new InMemoryDataStore(
+        new Map([
+          ["db:parents", [["id"], [1], [2]]],
+          [
+            "db:children",
+            [
+              ["id", "parentId"],
+              [10, 1],
+              [20, 2],
+            ],
+          ],
+          [
+            "db:grand_children",
+            [
+              ["id", "childId"],
+              [100, 10],
+              [200, 20],
+            ],
+          ],
+          [
+            "db:great_grand_children",
+            [
+              ["id", "grandChildId"],
+              [1000, 100],
+              [2000, 200],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("parents", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        parentTable.primaryKey as string,
+      );
+
+      const command = new DeleteCommand(
+        parentTable,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+        [1],
+      );
+
+      command.execute(records);
+
+      expect(store.get("db:parents").rows).toEqual([[2]]);
+      expect(store.get("db:children").rows).toEqual([[20, 2]]);
+      expect(store.get("db:grand_children").rows).toEqual([[200, 20]]);
+      expect(store.get("db:great_grand_children").rows).toEqual([[2000, 200]]);
+    });
+
+    it("cascadeのsibling relationをそれぞれ削除する", () => {
+      const parentSchema = z.object({
+        id: z.number().meta({ primary: true }),
+      });
+      const childASchema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number(),
+      });
+      const childBSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number(),
+      });
+
+      const parentTable = new SheetTable(
+        "db",
+        "parents",
+        parentSchema,
+        "id",
+        false,
+      );
+      const childATable = new SheetTable(
+        "db",
+        "children_a",
+        childASchema,
+        "id",
+        false,
+      );
+      const childBTable = new SheetTable(
+        "db",
+        "children_b",
+        childBSchema,
+        "id",
+        false,
+      );
+
+      childATable.reference("parentId", parentTable, "id", "cascade");
+      childBTable.reference("parentId", parentTable, "id", "cascade");
+
+      const store = new InMemoryDataStore(
+        new Map([
+          ["db:parents", [["id"], [1], [2]]],
+          [
+            "db:children_a",
+            [
+              ["id", "parentId"],
+              [10, 1],
+              [20, 2],
+            ],
+          ],
+          [
+            "db:children_b",
+            [
+              ["id", "parentId"],
+              [30, 1],
+              [40, 2],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("parents", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        parentTable.primaryKey as string,
+      );
+
+      new DeleteCommand(
+        parentTable,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+        [1],
+      ).execute(records);
+
+      expect(store.get("db:parents").rows).toEqual([[2]]);
+      expect(store.get("db:children_a").rows).toEqual([[20, 2]]);
+      expect(store.get("db:children_b").rows).toEqual([[40, 2]]);
+    });
+
+    it("cascade先にrestrict対象が存在する場合は削除全体を失敗させる", () => {
+      const parentSchema = z.object({
+        id: z.number().meta({ primary: true }),
+      });
+      const childSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number(),
+      });
+      const grandChildSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        childId: z.number(),
+      });
+
+      const parentTable = new SheetTable(
+        "db",
+        "parents",
+        parentSchema,
+        "id",
+        false,
+      );
+      const childTable = new SheetTable(
+        "db",
+        "children",
+        childSchema,
+        "id",
+        false,
+      );
+      const grandChildTable = new SheetTable(
+        "db",
+        "grand_children",
+        grandChildSchema,
+        "id",
+        false,
+      );
+
+      childTable.reference("parentId", parentTable, "id", "cascade");
+      grandChildTable.reference("childId", childTable, "id", "restrict");
+
+      const store = new InMemoryDataStore(
+        new Map([
+          ["db:parents", [["id"], [1]]],
+          [
+            "db:children",
+            [
+              ["id", "parentId"],
+              [10, 1],
+            ],
+          ],
+          [
+            "db:grand_children",
+            [
+              ["id", "childId"],
+              [100, 10],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("parents", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        parentTable.primaryKey as string,
+      );
+
+      const command = new DeleteCommand(
+        parentTable,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+        [1],
+      );
+
+      expect(() => command.execute(records)).toThrow();
+
+      // 途中までCASCADEされてはいけない
+      expect(store.get("db:parents").rows).toEqual([[1]]);
+      expect(store.get("db:children").rows).toEqual([[10, 1]]);
+      expect(store.get("db:grand_children").rows).toEqual([[100, 10]]);
+    });
+
+    it("set nullは対象childの外部キーだけをnullにする", () => {
+      const parentSchema = z.object({
+        id: z.number().meta({ primary: true }),
+      });
+      const childSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number().nullable(),
+      });
+
+      const parentTable = new SheetTable(
+        "db",
+        "parents",
+        parentSchema,
+        "id",
+        false,
+      );
+      const childTable = new SheetTable(
+        "db",
+        "children",
+        childSchema,
+        "id",
+        false,
+      );
+
+      childTable.reference("parentId", parentTable, "id", "set null");
+
+      const store = new InMemoryDataStore(
+        new Map([
+          ["db:parents", [["id"], [1], [2]]],
+          [
+            "db:children",
+            [
+              ["id", "parentId"],
+              [10, 1],
+              [20, 2],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("parents", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        parentTable.primaryKey as string,
+      );
+
+      new DeleteCommand(
+        parentTable,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+        [1],
+      ).execute(records);
+
+      expect(store.get("db:parents").rows).toEqual([[2]]);
+      expect(store.get("db:children").rows).toEqual([
+        [10, null],
+        [20, 2],
+      ]);
+    });
+
+    it("循環relationでも無限再帰しない", () => {
+      const aSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        bId: z.number().nullable(),
+      });
+      const bSchema = z.object({
+        id: z.number().meta({ primary: true }),
+        aId: z.number().nullable(),
+      });
+
+      const tableA = new SheetTable("db", "a", aSchema, "id", false);
+      const tableB = new SheetTable("db", "b", bSchema, "id", false);
+
+      tableB.reference("aId", tableA, "id", "cascade");
+      tableA.reference("bId", tableB, "id", "cascade");
+
+      const store = new InMemoryDataStore(
+        new Map([
+          [
+            "db:a",
+            [
+              ["id", "bId"],
+              [1, 10],
+            ],
+          ],
+          [
+            "db:b",
+            [
+              ["id", "aId"],
+              [10, 1],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("a", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        tableA.primaryKey as string,
+      );
+
+      expect(() =>
+        new DeleteCommand(
+          tableA,
+          gateway,
+          new InMemoryCacheService(),
+          new NodeUtilities(),
+          [1],
+        ).execute(records),
+      ).not.toThrow();
+
+      expect(store.get("db:a").rows).toEqual([]);
+      expect(store.get("db:b").rows).toEqual([]);
+    });
+
+    it("自己参照cascadeで子・孫まで削除する", () => {
+      const schema = z.object({
+        id: z.number().meta({ primary: true }),
+        parentId: z.number().nullable(),
+      });
+
+      const table = new SheetTable("db", "categories", schema, "id", false);
+
+      table.reference("parentId", table, "id", "cascade");
+
+      const store = new InMemoryDataStore(
+        new Map([
+          [
+            "db:categories",
+            [
+              ["id", "parentId"],
+              [1, null],
+              [2, 1],
+              [3, 2],
+              [4, null],
+            ],
+          ],
+        ]),
+      );
+
+      const gateway = new InMemoryGateway(store);
+      gateway.table("categories", "db");
+
+      const records = new SheetRecords(
+        gateway.read(),
+        table.primaryKey as string,
+      );
+
+      new DeleteCommand(
+        table,
+        gateway,
+        new InMemoryCacheService(),
+        new NodeUtilities(),
+        [1],
+      ).execute(records);
+
+      expect(store.get("db:categories").rows).toEqual([[4, null]]);
+    });
   });
 });

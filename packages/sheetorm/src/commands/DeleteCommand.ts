@@ -11,6 +11,7 @@ export class DeleteCommand extends WriteCommand {
     CacheService: GoogleAppsScript.Cache.CacheService,
     Utilities: GoogleAppsScript.Utilities.Utilities,
     private pkValues: any[],
+    private transactionEnabled = false,
   ) {
     super(gateway, table, CacheService, Utilities);
   }
@@ -60,6 +61,16 @@ export class DeleteCommand extends WriteCommand {
 
         originalRecords.set(tableKey, records);
         currentRecords.set(tableKey, records);
+
+        if (this.transactionEnabled) {
+          const sheetTable = table as SheetTable<any, any>;
+
+          if (!sheetTable.cache.hasExsist()) {
+            sheetTable.cache.setExsist(
+              new SheetRecords(records, sheetTable.primaryKey as string),
+            );
+          }
+        }
       }
 
       const rootKey = `${this.table.dbId}:${this.table.name}`;

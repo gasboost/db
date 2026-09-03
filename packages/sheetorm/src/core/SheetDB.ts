@@ -53,6 +53,7 @@ export class SheetDB<
   private _table: TableByName<T, N>;
   private transactionEnabled = false;
   private cache: GoogleAppsScript.Cache.Cache;
+
   constructor(
     private readonly tables: T,
     private gateway: AccessableDataStore,
@@ -74,6 +75,7 @@ export class SheetDB<
 
     this._table = table as unknown as TableByName<T, N>;
     this.gateway.table(this._table.name, this._table.dbId);
+
     return this as any;
   }
 
@@ -87,6 +89,7 @@ export class SheetDB<
       this.Utilities,
       params,
     );
+
     const records = command.getDiff();
 
     if (this.transactionEnabled) {
@@ -96,14 +99,17 @@ export class SheetDB<
 
     try {
       this.gateway.table(this._table.name, this._table.dbId);
+
       const exsist = new SheetRecords(
         this.gateway.read(),
         this._table.primaryKey as string,
       );
+
       command.execute(exsist);
     } finally {
       this._table.releaseLock();
     }
+
     return command.getDiff();
   }
 
@@ -115,24 +121,32 @@ export class SheetDB<
       this.Utilities,
       records,
     );
+
     if (this.transactionEnabled) {
       this.gateway.table(this._table.name, this._table.dbId);
+
       const exsist = new SheetRecords(
         this.gateway.read(),
         this._table.primaryKey as string,
       );
+
       const updatedRecords = command.preview(exsist);
+
       this._table.cache.add(command);
+
       return updatedRecords;
     }
 
     try {
       this.gateway.table(this._table.name, this._table.dbId);
+
       const exsist = new SheetRecords(
         this.gateway.read(),
         this._table.primaryKey as string,
       );
+
       const updatedRecords = command.execute(exsist);
+
       return updatedRecords;
     } finally {
       this._table.releaseLock();
@@ -141,6 +155,7 @@ export class SheetDB<
 
   public upsert(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
     this.gateway.table(this._table.name, this._table.dbId);
+
     const exsist = new SheetRecords(
       this.gateway.read(),
       this._table.primaryKey as string,
@@ -158,8 +173,10 @@ export class SheetDB<
       T,
       N
     >[];
+
     const createIndexes: number[] = [];
     const updateIndexes: number[] = [];
+
     const createParams: Record<string, any>[] = [];
     const updateRecords: Record<string, any>[] = [];
 
@@ -170,16 +187,21 @@ export class SheetDB<
         if (!this._table.autoIncrement) {
           throw new Error("Primary key is required for upsert.");
         }
+
         delete record[this._table.primaryKey as string];
+
         createIndexes.push(index);
         createParams.push(record);
+
         return;
       }
 
       const existing = exsist.getRecord(pkValue);
+
       if (existing) {
         updateIndexes.push(index);
         updateRecords.push(record);
+
         return;
       }
 
@@ -205,9 +227,11 @@ export class SheetDB<
     if (this.transactionEnabled) {
       if (updateCommand) {
         const updatedRecords = updateCommand.preview(exsist);
+
         updatedRecords.forEach((record, index) => {
           resultRecords[updateIndexes[index]] = record;
         });
+
         this._table.cache.add(updateCommand);
       }
 
@@ -224,9 +248,11 @@ export class SheetDB<
 
       if (createCommand) {
         const createdRecords = createCommand.getDiff();
+
         createdRecords.forEach((record, index) => {
           resultRecords[createIndexes[index]] = record as CurrentRecord<T, N>;
         });
+
         this._table.cache.add(createCommand);
       }
 
@@ -236,6 +262,7 @@ export class SheetDB<
     try {
       if (updateCommand) {
         const updatedRecords = updateCommand.execute(exsist);
+
         updatedRecords.forEach((record, index) => {
           resultRecords[updateIndexes[index]] = record;
         });
@@ -254,7 +281,9 @@ export class SheetDB<
 
       if (createCommand) {
         createCommand.execute(exsist);
+
         const createdRecords = createCommand.getDiff();
+
         createdRecords.forEach((record, index) => {
           resultRecords[createIndexes[index]] = record as CurrentRecord<T, N>;
         });
@@ -273,6 +302,7 @@ export class SheetDB<
       this.CacheService,
       this.Utilities,
       pkValues,
+      this.transactionEnabled,
     );
 
     if (this.transactionEnabled) {
@@ -282,10 +312,12 @@ export class SheetDB<
 
     try {
       this.gateway.table(this._table.name, this._table.dbId);
+
       const records = new SheetRecords(
         this.gateway.read(),
         this._table.primaryKey as string,
       );
+
       command.execute(records);
     } finally {
       this._table.releaseLock();
@@ -309,23 +341,33 @@ export class SheetDB<
   }
 
   find(): RecordWithRelations<CurrentRecord<T, N>>[];
+
   find<U extends T[number]["name"]>(
     query: SheetQuery<T, TableByName<T, U>["schema"], U>,
     recursive?: boolean,
   ): RecordWithRelations<CurrentRecord<T, U>>[];
+
   find(
     query?: SheetQuery<T, any, any>,
     recursive?: boolean,
   ): RecordWithRelations<CurrentRecord<T, N>>[];
+
   find(query?: SheetQuery<T, any, any>, recursive?: boolean): any {
     const queryTableName = query?.getTableName();
+
     if (queryTableName) {
       this.table(queryTableName as any);
     }
-    if (!recursive) this.gateway.table(this._table.name, this._table.dbId);
+
+    if (!recursive) {
+      this.gateway.table(this._table.name, this._table.dbId);
+    }
+
     const records = this.gateway.read();
 
-    if (!query) return records;
+    if (!query) {
+      return records;
+    }
 
     const filterdRecords = query.filter(records);
     const sortedRecords = query.sort(filterdRecords);
@@ -334,21 +376,31 @@ export class SheetDB<
 
     const joins = query.getJoins();
 
-    if (joins.length <= 0) return cuttedRecords;
+    if (joins.length <= 0) {
+      return cuttedRecords;
+    }
 
     const baseTableName = this._table.name;
 
     joins.forEach((join) => {
-      // join のたびに親テーブルへ戻してから処理する
       this.table(baseTableName as any);
 
       const parents = cuttedRecords.reduce(
         (acc, record) => {
           const key = record[join.localKey as string];
-          if (key === null || key === undefined) return acc;
+
+          if (key === null || key === undefined) {
+            return acc;
+          }
+
           const keyStr = String(key);
-          if (!acc[keyStr]) acc[keyStr] = [];
+
+          if (!acc[keyStr]) {
+            acc[keyStr] = [];
+          }
+
           acc[keyStr].push(record);
+
           return acc;
         },
         {} as Record<string, RecordWithRelations<CurrentRecord<T, N>>[]>,
@@ -356,16 +408,23 @@ export class SheetDB<
 
       this.table(join.table);
 
-      // 子データを取得
       this.gateway.table(this._table.name, this._table.dbId);
+
       const children = this.find(join.query || undefined, true);
 
-      // 関連データをエンティティに追加する
       children.forEach((child) => {
         const parentKey = child[join.foreignKey];
-        if (parentKey === null || parentKey === undefined) return;
+
+        if (parentKey === null || parentKey === undefined) {
+          return;
+        }
+
         const matchedParents = parents[String(parentKey)];
-        if (!matchedParents || matchedParents.length === 0) return;
+
+        if (!matchedParents || matchedParents.length === 0) {
+          return;
+        }
+
         matchedParents.forEach(
           (parent: RecordWithRelations<CurrentRecord<T, N>>) => {
             parent.relations ??= {};
@@ -376,60 +435,70 @@ export class SheetDB<
       });
     });
 
-    // find() 呼び出し元のテーブル状態を戻す
     this.table(baseTableName as any);
+
     return cuttedRecords;
   }
 
   transaction<R>(fn: () => R): R {
     this.transactionEnabled = true;
+
     try {
       const result = fn();
+
       this.tables.forEach((table) => this.commit(table));
+
       return result;
     } catch (e) {
       this.tables.forEach((table) => this.rollback(table));
+
       throw e;
     } finally {
+      this.tables.forEach((table) => table.cache.clear());
       this.transactionEnabled = false;
     }
   }
 
   commit(table: T[number]): void {
     this.gateway.table(table.name, table.dbId);
+
     const cache = table.cache;
+
     table.lock(this.cache, this.Utilities);
 
-    const records = new SheetRecords(
-      this.gateway.read(),
-      table.primaryKey as string,
-    );
-    cache.setExsist(records);
-    while (cache.hasNext()) {
-      const command = cache.next();
-      command.execute(records);
-    }
+    try {
+      const records = new SheetRecords(
+        this.gateway.read(),
+        table.primaryKey as string,
+      );
 
-    table.releaseLock();
-    cache.clear();
+      if (!cache.hasExsist()) {
+        cache.setExsist(records);
+      }
+
+      while (cache.hasNext()) {
+        const command = cache.next();
+        command.execute(records);
+      }
+    } finally {
+      table.releaseLock();
+    }
   }
 
   rollback(table: T[number]): void {
-    table.lock(this.cache, this.Utilities);
     const cache = table.cache;
 
-    const exsist = cache.getExsist();
-    this.gateway.table(table.name, table.dbId);
-    if (!exsist || exsist.length === 0) {
-      table.releaseLock();
+    if (!cache.hasExsist()) {
       return;
     }
 
+    table.lock(this.cache, this.Utilities);
+
     try {
-      this.gateway.rewrite(exsist);
+      this.gateway.table(table.name, table.dbId);
+      this.gateway.rewrite(cache.getExsist());
     } finally {
       table.releaseLock();
-      cache.clear();
     }
   }
 
@@ -446,11 +515,13 @@ export class SheetDB<
       }
     }
   }
+
   seed<U extends T[number]["name"]>(
     tableName: U,
     datas: z.infer<TableByName<T, U>["schema"]>[],
   ) {
     this.table(tableName);
+
     this.gateway.table(this._table.name, this._table.dbId);
 
     this._table.lock(this.cache, this.Utilities);
@@ -458,6 +529,7 @@ export class SheetDB<
     try {
       if (this.gateway.count() > 0) {
         console.error(`Table '${tableName}' is not empty. Seed failed.`);
+
         return;
       }
 
@@ -472,6 +544,7 @@ export class SheetDB<
       this.gateway.table(table.name, table.dbId);
       this.gateway.protect();
     }
+
     return;
   }
 }

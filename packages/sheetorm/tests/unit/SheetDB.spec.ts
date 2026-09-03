@@ -718,4 +718,192 @@ describe("SheetDB", () => {
       expect(calls).toEqual(["lock", "count", "insert", "release"]);
     });
   });
+
+  it("transaction内のcascade delete後に後続commandが失敗した場合は子孫までrollbackする", () => {
+    const parentSchema = z.object({
+      id: z.number().meta({ primary: true }),
+    });
+
+    const childSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      parentId: z.number(),
+    });
+
+    const grandChildSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      childId: z.number(),
+    });
+
+    const otherSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      name: z.string(),
+    });
+
+    const parentTable = new SheetTable(
+      "db",
+      "parents",
+      parentSchema,
+      "id",
+      false,
+    );
+
+    const childTable = new SheetTable(
+      "db",
+      "children",
+      childSchema,
+      "id",
+      false,
+    );
+
+    const grandChildTable = new SheetTable(
+      "db",
+      "grand_children",
+      grandChildSchema,
+      "id",
+      false,
+    );
+
+    const otherTable = new SheetTable("db", "others", otherSchema, "id", false);
+
+    childTable.reference("parentId", parentTable, "id", "cascade");
+
+    grandChildTable.reference("childId", childTable, "id", "cascade");
+
+    const store = new InMemoryDataStore(
+      new Map([
+        ["db:parents", [["id"], [1], [2]]],
+        [
+          "db:children",
+          [
+            ["id", "parentId"],
+            [10, 1],
+            [20, 2],
+          ],
+        ],
+        [
+          "db:grand_children",
+          [
+            ["id", "childId"],
+            [100, 10],
+            [200, 20],
+          ],
+        ],
+        ["db:others", [["id", "name"]]],
+      ]),
+    );
+
+    const db = new SheetDB(
+      [parentTable, childTable, grandChildTable, otherTable] as const,
+      new InMemoryGateway(store),
+      new InMemoryCacheService(),
+      new NodeUtilities(),
+    );
+
+    expect(() =>
+      db.transaction(() => {
+        db.table("parents").delete([1]);
+
+        db.table("others").create([
+          {
+            id: 1,
+            name: 123,
+          } as any,
+        ]);
+      }),
+    ).toThrow();
+
+    expect(store.get("db:parents").rows).toEqual([[1], [2]]);
+
+    expect(store.get("db:children").rows).toEqual([
+      [10, 1],
+      [20, 2],
+    ]);
+
+    expect(store.get("db:grand_children").rows).toEqual([
+      [100, 10],
+      [200, 20],
+    ]);
+
+    expect(store.get("db:others").rows).toEqual([]);
+  });
+
+  it("transaction内のset null delete後に後続commandが失敗した場合は外部キーもrollbackする", () => {
+    const parentSchema = z.object({
+      id: z.number().meta({ primary: true }),
+    });
+
+    const childSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      parentId: z.number().nullable(),
+    });
+
+    const otherSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      name: z.string(),
+    });
+
+    const parentTable = new SheetTable(
+      "db",
+      "parents",
+      parentSchema,
+      "id",
+      false,
+    );
+
+    const childTable = new SheetTable(
+      "db",
+      "children",
+      childSchema,
+      "id",
+      false,
+    );
+
+    const otherTable = new SheetTable("db", "others", otherSchema, "id", false);
+
+    childTable.reference("parentId", parentTable, "id", "set null");
+
+    const store = new InMemoryDataStore(
+      new Map([
+        ["db:parents", [["id"], [1], [2]]],
+        [
+          "db:children",
+          [
+            ["id", "parentId"],
+            [10, 1],
+            [20, 2],
+          ],
+        ],
+        ["db:others", [["id", "name"]]],
+      ]),
+    );
+
+    const db = new SheetDB(
+      [parentTable, childTable, otherTable] as const,
+      new InMemoryGateway(store),
+      new InMemoryCacheService(),
+      new NodeUtilities(),
+    );
+
+    expect(() =>
+      db.transaction(() => {
+        db.table("parents").delete([1]);
+
+        db.table("others").create([
+          {
+            id: 1,
+            name: 123,
+          } as any,
+        ]);
+      }),
+    ).toThrow();
+
+    expect(store.get("db:parents").rows).toEqual([[1], [2]]);
+
+    expect(store.get("db:children").rows).toEqual([
+      [10, 1],
+      [20, 2],
+    ]);
+
+    expect(store.get("db:others").rows).toEqual([]);
+  });
 });

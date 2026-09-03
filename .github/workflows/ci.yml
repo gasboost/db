@@ -70,8 +70,6 @@ jobs:
           {
           "compilerOptions": {
               "target": "ES2022",
-              "module": "CommonJS",
-              "moduleResolution": "node",
               "strict": true,
               "types": ["google-apps-script"],
               "skipLibCheck": true

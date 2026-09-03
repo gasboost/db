@@ -6,6 +6,6 @@
     "declaration": true,
     "types": ["google-apps-script", "node"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,4 +1,4 @@
-# SheetORM
+# @gasboost/sheetorm
 
 Google Apps Script / Google Sheets 向けの、Zod ベースの型安全な ORM です。
 
@@ -46,6 +46,26 @@ Table
 ```
 
 これにより、不要な Spreadsheet API 呼び出しを避け、GAS の実行時間と外部 I/O の削減を図ります。
+
+---
+
+## Public API
+
+現在 `@gasboost/sheetorm` から公開している主要 API は以下です。
+
+- `SheetDB` — Table 選択、CRUD、Query、Transaction、Migration、Seed、Protection を扱うエントリーポイント
+- `SheetTable` — Zod Schema、Primary Key、採番、Optimistic Lock、Relation を定義する Table
+- `SheetGateway` — Google Sheets への読み書きを担当する Gateway
+
+```ts
+import {
+  SheetDB,
+  SheetGateway,
+  SheetTable,
+} from "@gasboost/sheetorm";
+```
+
+内部の Command、Query 実装、Cache などは package の public entry point からは公開していません。
 
 ---
 
@@ -204,6 +224,8 @@ new SheetTable(
 # Primary Key
 
 Primary Key は `SheetTable` のコンストラクタで指定します。
+
+`schema` の metadata だけで Primary Key が決まるわけではなく、Table として利用する Primary Key は constructor の `primaryKey` 引数が基準です。
 
 ```ts
 const schema = z.object({
@@ -1327,3 +1349,9 @@ Domain Model の構築や Business Logic は SheetORM の責務ではありま�
 を可能にしています。
 
 また、Google Sheets との I/O は可能な限り Table 単位に集約し、取得後の処理をメモリ上で行うことで、Spreadsheet API 呼び出し回数の最小化を図ります。
+
+---
+
+# License
+
+MIT

@@ -16,7 +16,13 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true, autoIncrement: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", true);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+      autoNumbering: "increment",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -47,7 +53,13 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true, autoIncrement: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", true);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+      autoNumbering: "increment",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -88,7 +100,13 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true, autoIncrement: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", true);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+      autoNumbering: "increment",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -118,7 +136,12 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const command = new CreateCommand(
       new InMemoryGateway(
@@ -140,8 +163,12 @@ describe("Command coverage", () => {
       id: z.string().meta({ primary: true, autoIncrement: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", true, {
-      autoNumberingMode: "uuid",
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+      autoNumbering: "uuid",
     });
 
     const utilities = new NodeUtilities();
@@ -176,22 +203,20 @@ describe("Command coverage", () => {
       parentId: z.string(),
       name: z.string(),
     });
-    const parentTable = new SheetTable(
-      "db",
-      "parents",
-      parentSchema,
-      "id",
-      true,
-      { autoNumberingMode: "uuid" },
-    );
-    const childTable = new SheetTable(
-      "db",
-      "children",
-      childSchema,
-      "id",
-      true,
-      { autoNumberingMode: "uuid" },
-    );
+    const parentTable = new SheetTable({
+      dbId: "db",
+      name: "parents",
+      schema: parentSchema,
+      primaryKey: "id",
+      autoNumbering: "uuid",
+    });
+    const childTable = new SheetTable({
+      dbId: "db",
+      name: "children",
+      schema: childSchema,
+      primaryKey: "id",
+      autoNumbering: "uuid",
+    });
 
     childTable.reference("parentId", parentTable, "id", "cascade");
 
@@ -253,22 +278,20 @@ describe("Command coverage", () => {
       name: z.string(),
     });
 
-    const parentTable = new SheetTable(
-      "db",
-      "parents",
-      parentSchema,
-      "id",
-      true,
-      { autoNumberingMode: "uuid" },
-    );
-    const childTable = new SheetTable(
-      "db",
-      "children",
-      childSchema,
-      "id",
-      true,
-      { autoNumberingMode: "uuid" },
-    );
+    const parentTable = new SheetTable({
+      dbId: "db",
+      name: "parents",
+      schema: parentSchema,
+      primaryKey: "id",
+      autoNumbering: "uuid",
+    });
+    const childTable = new SheetTable({
+      dbId: "db",
+      name: "children",
+      schema: childSchema,
+      primaryKey: "id",
+      autoNumbering: "uuid",
+    });
 
     childTable.reference("parentId", parentTable, "id", "cascade");
 
@@ -328,12 +351,19 @@ describe("Command coverage", () => {
 
     expect(getUuid).toHaveBeenCalledTimes(3);
   });
+
   it("CreateCommand starts from 1 when lastId is 0", () => {
     const schema = z.object({
       id: z.number().meta({ primary: true, autoIncrement: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", true);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+      autoNumbering: "increment",
+    });
 
     const store = new InMemoryDataStore(
       new Map([["db:users", [["id", "name"]]]]),
@@ -355,7 +385,12 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true }),
       email: z.string().meta({ unique: true }),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -389,7 +424,12 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true }),
       email: z.string().meta({ unique: true }),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([["db:users", [["id", "email"]]]]),
@@ -418,7 +458,12 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true }),
       email: z.string().optional().meta({ unique: true }),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([["db:users", [["id", "email"]]]]),
@@ -442,7 +487,12 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true }),
       email: z.string().meta({ unique: true }),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([["db:users", [["id", "email"], [1, "   "], [2]]]]),
@@ -471,7 +521,12 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true }),
       email: z.string().meta({ unique: true }),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -503,7 +558,12 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true }),
       email: z.string().meta({ unique: true }),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -538,7 +598,12 @@ describe("Command coverage", () => {
       id: z.number().meta({ primary: true }),
       email: z.string().nullable().optional().meta({ unique: true }),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -586,20 +651,18 @@ describe("Command coverage", () => {
         name: z.string(),
       });
 
-      const parentTable = new SheetTable(
-        "db",
-        "parents",
-        parentSchema,
-        "id",
-        false,
-      );
-      const childTable = new SheetTable(
-        "db",
-        "children",
-        childSchema,
-        "id",
-        false,
-      );
+      const parentTable = new SheetTable({
+        dbId: "db",
+        name: "parents",
+        schema: parentSchema,
+        primaryKey: "id",
+      });
+      const childTable = new SheetTable({
+        dbId: "db",
+        name: "children",
+        schema: childSchema,
+        primaryKey: "id",
+      });
 
       childTable.reference("parentId", parentTable, "id", "restrict");
 
@@ -655,20 +718,18 @@ describe("Command coverage", () => {
         name: z.string(),
       });
 
-      const parentTable = new SheetTable(
-        "db",
-        "parents",
-        parentSchema,
-        "id",
-        false,
-      );
-      const childTable = new SheetTable(
-        "db",
-        "children",
-        childSchema,
-        "id",
-        false,
-      );
+      const parentTable = new SheetTable({
+        dbId: "db",
+        name: "parents",
+        schema: parentSchema,
+        primaryKey: "id",
+      });
+      const childTable = new SheetTable({
+        dbId: "db",
+        name: "children",
+        schema: childSchema,
+        primaryKey: "id",
+      });
 
       childTable.reference("parentId", parentTable, "id", "restrict");
 
@@ -731,34 +792,30 @@ describe("Command coverage", () => {
         grandChildId: z.number(),
       });
 
-      const parentTable = new SheetTable(
-        "db",
-        "parents",
-        parentSchema,
-        "id",
-        false,
-      );
-      const childTable = new SheetTable(
-        "db",
-        "children",
-        childSchema,
-        "id",
-        false,
-      );
-      const grandChildTable = new SheetTable(
-        "db",
-        "grand_children",
-        grandChildSchema,
-        "id",
-        false,
-      );
-      const greatGrandChildTable = new SheetTable(
-        "db",
-        "great_grand_children",
-        greatGrandChildSchema,
-        "id",
-        false,
-      );
+      const parentTable = new SheetTable({
+        dbId: "db",
+        name: "parents",
+        schema: parentSchema,
+        primaryKey: "id",
+      });
+      const childTable = new SheetTable({
+        dbId: "db",
+        name: "children",
+        schema: childSchema,
+        primaryKey: "id",
+      });
+      const grandChildTable = new SheetTable({
+        dbId: "db",
+        name: "grand_children",
+        schema: grandChildSchema,
+        primaryKey: "id",
+      });
+      const greatGrandChildTable = new SheetTable({
+        dbId: "db",
+        name: "great_grand_children",
+        schema: greatGrandChildSchema,
+        primaryKey: "id",
+      });
 
       childTable.reference("parentId", parentTable, "id", "cascade");
       grandChildTable.reference("childId", childTable, "id", "cascade");
@@ -836,27 +893,24 @@ describe("Command coverage", () => {
         parentId: z.number(),
       });
 
-      const parentTable = new SheetTable(
-        "db",
-        "parents",
-        parentSchema,
-        "id",
-        false,
-      );
-      const childATable = new SheetTable(
-        "db",
-        "children_a",
-        childASchema,
-        "id",
-        false,
-      );
-      const childBTable = new SheetTable(
-        "db",
-        "children_b",
-        childBSchema,
-        "id",
-        false,
-      );
+      const parentTable = new SheetTable({
+        dbId: "db",
+        name: "parents",
+        schema: parentSchema,
+        primaryKey: "id",
+      });
+      const childATable = new SheetTable({
+        dbId: "db",
+        name: "children_a",
+        schema: childASchema,
+        primaryKey: "id",
+      });
+      const childBTable = new SheetTable({
+        dbId: "db",
+        name: "children_b",
+        schema: childBSchema,
+        primaryKey: "id",
+      });
 
       childATable.reference("parentId", parentTable, "id", "cascade");
       childBTable.reference("parentId", parentTable, "id", "cascade");
@@ -917,27 +971,24 @@ describe("Command coverage", () => {
         childId: z.number(),
       });
 
-      const parentTable = new SheetTable(
-        "db",
-        "parents",
-        parentSchema,
-        "id",
-        false,
-      );
-      const childTable = new SheetTable(
-        "db",
-        "children",
-        childSchema,
-        "id",
-        false,
-      );
-      const grandChildTable = new SheetTable(
-        "db",
-        "grand_children",
-        grandChildSchema,
-        "id",
-        false,
-      );
+      const parentTable = new SheetTable({
+        dbId: "db",
+        name: "parents",
+        schema: parentSchema,
+        primaryKey: "id",
+      });
+      const childTable = new SheetTable({
+        dbId: "db",
+        name: "children",
+        schema: childSchema,
+        primaryKey: "id",
+      });
+      const grandChildTable = new SheetTable({
+        dbId: "db",
+        name: "grand_children",
+        schema: grandChildSchema,
+        primaryKey: "id",
+      });
 
       childTable.reference("parentId", parentTable, "id", "cascade");
       grandChildTable.reference("childId", childTable, "id", "restrict");
@@ -980,7 +1031,6 @@ describe("Command coverage", () => {
 
       expect(() => command.execute(records)).toThrow();
 
-      // 途中までCASCADEされてはいけない
       expect(store.get("db:parents").rows).toEqual([[1]]);
       expect(store.get("db:children").rows).toEqual([[10, 1]]);
       expect(store.get("db:grand_children").rows).toEqual([[100, 10]]);
@@ -995,20 +1045,18 @@ describe("Command coverage", () => {
         parentId: z.number().nullable(),
       });
 
-      const parentTable = new SheetTable(
-        "db",
-        "parents",
-        parentSchema,
-        "id",
-        false,
-      );
-      const childTable = new SheetTable(
-        "db",
-        "children",
-        childSchema,
-        "id",
-        false,
-      );
+      const parentTable = new SheetTable({
+        dbId: "db",
+        name: "parents",
+        schema: parentSchema,
+        primaryKey: "id",
+      });
+      const childTable = new SheetTable({
+        dbId: "db",
+        name: "children",
+        schema: childSchema,
+        primaryKey: "id",
+      });
 
       childTable.reference("parentId", parentTable, "id", "set null");
 
@@ -1059,8 +1107,18 @@ describe("Command coverage", () => {
         aId: z.number().nullable(),
       });
 
-      const tableA = new SheetTable("db", "a", aSchema, "id", false);
-      const tableB = new SheetTable("db", "b", bSchema, "id", false);
+      const tableA = new SheetTable({
+        dbId: "db",
+        name: "a",
+        schema: aSchema,
+        primaryKey: "id",
+      });
+      const tableB = new SheetTable({
+        dbId: "db",
+        name: "b",
+        schema: bSchema,
+        primaryKey: "id",
+      });
 
       tableB.reference("aId", tableA, "id", "cascade");
       tableA.reference("bId", tableB, "id", "cascade");
@@ -1112,7 +1170,12 @@ describe("Command coverage", () => {
         parentId: z.number().nullable(),
       });
 
-      const table = new SheetTable("db", "categories", schema, "id", false);
+      const table = new SheetTable({
+        dbId: "db",
+        name: "categories",
+        schema,
+        primaryKey: "id",
+      });
 
       table.reference("parentId", table, "id", "cascade");
 

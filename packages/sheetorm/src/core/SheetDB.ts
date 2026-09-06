@@ -46,6 +46,13 @@ type CreateRelations<T extends readonly Relationable<any>[]> = Partial<{
   [K in T[number]["name"]]: CreateParams<T, TableByName<T, K>["schema"]>[];
 }>;
 
+export type SheetDBConfig<T extends readonly SheetTable<string, any>[]> = {
+  tables: T;
+  gateway: AccessableDataStore;
+  cacheService: GoogleAppsScript.Cache.CacheService;
+  utilities: GoogleAppsScript.Utilities.Utilities;
+};
+
 export class SheetDB<
   T extends readonly SheetTable<string, any>[],
   N extends T[number]["name"] = T[number]["name"],
@@ -53,15 +60,40 @@ export class SheetDB<
   private _table: TableByName<T, N>;
   private transactionEnabled = false;
   private cache: GoogleAppsScript.Cache.Cache;
+  private readonly tables: T;
+  private gateway: AccessableDataStore;
+  private CacheService: GoogleAppsScript.Cache.CacheService;
+  private Utilities: GoogleAppsScript.Utilities.Utilities;
 
+  constructor(config: SheetDBConfig<T>);
+  /** @deprecated Use the object-based constructor instead. */
   constructor(
-    private readonly tables: T,
-    private gateway: AccessableDataStore,
-    private CacheService: GoogleAppsScript.Cache.CacheService,
-    private Utilities: GoogleAppsScript.Utilities.Utilities,
+    tables: T,
+    gateway: AccessableDataStore,
+    CacheService: GoogleAppsScript.Cache.CacheService,
+    Utilities: GoogleAppsScript.Utilities.Utilities,
+  );
+  constructor(
+    configOrTables: SheetDBConfig<T> | T,
+    gateway?: AccessableDataStore,
+    CacheService?: GoogleAppsScript.Cache.CacheService,
+    Utilities?: GoogleAppsScript.Utilities.Utilities,
   ) {
-    this._table = tables[0] as TableByName<T, N>;
-    this.cache = CacheService.getScriptCache();
+    const config: SheetDBConfig<T> = Array.isArray(configOrTables)
+      ? {
+          tables: configOrTables as T,
+          gateway: gateway as AccessableDataStore,
+          cacheService: CacheService as GoogleAppsScript.Cache.CacheService,
+          utilities: Utilities as GoogleAppsScript.Utilities.Utilities,
+        }
+      : (configOrTables as SheetDBConfig<T>);
+
+    this.tables = config.tables;
+    this.gateway = config.gateway;
+    this.CacheService = config.cacheService;
+    this.Utilities = config.utilities;
+    this._table = this.tables[0] as TableByName<T, N>;
+    this.cache = this.CacheService.getScriptCache();
   }
 
   public table<U extends T[number]["name"]>(name: U): SheetDB<T, U> {
@@ -375,7 +407,6 @@ export class SheetDB<
     const cuttedRecords = query.cut(shiftedRecords);
 
     const joins = query.getJoins();
-
     if (joins.length <= 0) {
       return cuttedRecords;
     }

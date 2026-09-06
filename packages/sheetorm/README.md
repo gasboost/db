@@ -422,7 +422,7 @@ Create は作成された Record を返します。
 created[0].name;
 ```
 
-Auto Increment / UUID が有効な場合は、採番後の Primary Key を含む Record が返ります。
+Auto Numbering が有効な場合は、採番後の Primary Key を含む Record が返ります。
 
 ---
 
@@ -1173,7 +1173,6 @@ const commentTable = new SheetTable({
 });
 
 postTable.reference("userId", userTable, "id", "cascade");
-
 commentTable.reference("postId", postTable, "id", "cascade");
 
 const db = new SheetDB({

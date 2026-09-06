@@ -65,29 +65,7 @@ export class SheetDB<
   private CacheService: GoogleAppsScript.Cache.CacheService;
   private Utilities: GoogleAppsScript.Utilities.Utilities;
 
-  constructor(config: SheetDBConfig<T>);
-  /** @deprecated Use the object-based constructor instead. */
-  constructor(
-    tables: T,
-    gateway: AccessableDataStore,
-    CacheService: GoogleAppsScript.Cache.CacheService,
-    Utilities: GoogleAppsScript.Utilities.Utilities,
-  );
-  constructor(
-    configOrTables: SheetDBConfig<T> | T,
-    gateway?: AccessableDataStore,
-    CacheService?: GoogleAppsScript.Cache.CacheService,
-    Utilities?: GoogleAppsScript.Utilities.Utilities,
-  ) {
-    const config: SheetDBConfig<T> = Array.isArray(configOrTables)
-      ? {
-          tables: configOrTables as T,
-          gateway: gateway as AccessableDataStore,
-          cacheService: CacheService as GoogleAppsScript.Cache.CacheService,
-          utilities: Utilities as GoogleAppsScript.Utilities.Utilities,
-        }
-      : (configOrTables as SheetDBConfig<T>);
-
+  constructor(config: SheetDBConfig<T>) {
     this.tables = config.tables;
     this.gateway = config.gateway;
     this.CacheService = config.cacheService;
@@ -216,7 +194,7 @@ export class SheetDB<
       const pkValue = record[this._table.primaryKey as string];
 
       if (isEmptyPrimaryKey(pkValue)) {
-        if (!this._table.autoIncrement) {
+        if (!this._table.autoNumbering) {
           throw new Error("Primary key is required for upsert.");
         }
 
@@ -237,7 +215,7 @@ export class SheetDB<
         return;
       }
 
-      if (this._table.autoIncrement) {
+      if (this._table.autoNumbering) {
         delete record[this._table.primaryKey as string];
       }
 

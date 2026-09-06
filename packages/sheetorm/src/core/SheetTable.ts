@@ -7,65 +7,71 @@ export type AutoNumberingMode = "increment" | "uuid";
 
 export type Columns<Z extends ZodObject<any>> = keyof z.infer<Z>;
 
+export type SheetTableConfig<
+  N extends string,
+  Z extends ZodObject<ZodRawShape>,
+> = {
+  dbId: string;
+  name: N;
+  schema: Z;
+  primaryKey: Columns<Z>;
+  autoNumbering?: AutoNumberingMode;
+  versionColumn?: Columns<Z>;
+};
+
 export class SheetTable<
   N extends string,
   Z extends ZodObject<ZodRawShape>,
 > implements Relationable<Z> {
-  public readonly autoIncrement: boolean;
-  public readonly autoNumberingMode: AutoNumberingMode | null = null;
+  public readonly dbId: string;
+  public readonly name: N;
+  public readonly schema: Z;
+  public readonly primaryKey: Columns<Z>;
+  public readonly autoNumbering: AutoNumberingMode | undefined;
   public readonly cache: SheetCache;
   private lockToken: string | null = null;
   private lockHeld = false;
   private lockKey: string | null = null;
   private cacheRef: GoogleAppsScript.Cache.Cache | null = null;
   public readonly versionColumn: Columns<Z> | null = null;
-  constructor(
-    public readonly dbId: string,
-    public readonly name: N,
-    public readonly schema: Z,
-    public readonly primaryKey: Columns<Z>,
-    autoIncrement: boolean,
-    options?: {
-      versionColumn?: Columns<Z>;
-      autoNumberingMode?: AutoNumberingMode;
-    },
-    private relations: SheetRelation[] = [],
-  ) {
-    const pkField = this.schema.shape[primaryKey as string];
+  private relations: SheetRelation[] = [];
+
+  constructor(config: SheetTableConfig<N, Z>) {
+    this.dbId = config.dbId;
+    this.name = config.name;
+    this.schema = config.schema;
+    this.primaryKey = config.primaryKey;
+    this.autoNumbering = config.autoNumbering;
+
+    const pkField = this.schema.shape[this.primaryKey as string];
     const isNumber = pkField._zod.def.type === "number";
     const isString = pkField._zod.def.type === "string";
-    const autoNumberingMode = options?.autoNumberingMode ?? "increment";
-    if (!autoIncrement && options?.autoNumberingMode) {
+
+    if (this.autoNumbering === "increment" && !isNumber) {
       throw new Error(
-        `Auto numbering mode '${options.autoNumberingMode}' requires autoIncrement to be enabled.`,
+        `Primary key field '${this.primaryKey as string}' must be a number to use auto-increment.`,
       );
     }
-    if (autoIncrement && autoNumberingMode === "increment" && !isNumber) {
+    if (this.autoNumbering === "uuid" && !isString) {
       throw new Error(
-        `Primary key field '${primaryKey as string}' must be a number to use auto-increment.`,
+        `Primary key field '${this.primaryKey as string}' must be a string to use uuid auto-numbering.`,
       );
     }
-    if (autoIncrement && autoNumberingMode === "uuid" && !isString) {
-      throw new Error(
-        `Primary key field '${primaryKey as string}' must be a string to use uuid auto-numbering.`,
-      );
-    }
-    this.autoIncrement = autoIncrement;
-    this.autoNumberingMode = autoIncrement ? autoNumberingMode : null;
+
     this.cache = new SheetCache();
-    if (options?.versionColumn) {
-      const versionField = this.schema.shape[options.versionColumn as string];
+    if (config.versionColumn) {
+      const versionField = this.schema.shape[config.versionColumn as string];
       if (!versionField) {
         throw new Error(
-          `Version column '${options.versionColumn as string}' does not exist in schema.`,
+          `Version column '${config.versionColumn as string}' does not exist in schema.`,
         );
       }
       if (versionField._zod.def.type !== "number") {
         throw new Error(
-          `Version column '${options.versionColumn as string}' must be a number.`,
+          `Version column '${config.versionColumn as string}' must be a number.`,
         );
       }
-      this.versionColumn = options.versionColumn;
+      this.versionColumn = config.versionColumn;
     }
   }
 

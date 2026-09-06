@@ -8,6 +8,7 @@ describe("SheetTable", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
   it("primaryKey = ID", () => {
     const userSchema = z.object({
       ID: z.number().meta({ primary: true }),
@@ -15,58 +16,68 @@ describe("SheetTable", () => {
       メール: z.string().meta({ unique: true }),
     });
 
-    const userTable = new SheetTable(
-      "your-db-id",
-      "ユーザー",
-      userSchema,
-      "ID",
-      true,
-    );
+    const userTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "ユーザー",
+      schema: userSchema,
+      primaryKey: "ID",
+      autoNumbering: "increment",
+    });
 
     expect(userTable.primaryKey).toBe("ID");
   });
-  it("autoIncrement = false", () => {
+
+  it("autoNumbering is undefined", () => {
     const userSchema = z.object({
       ID: z.number().meta({ primary: true }),
       名前: z.string(),
       メール: z.string().meta({ unique: true }),
     });
 
-    const userTable = new SheetTable(
-      "your-db-id",
-      "ユーザー",
-      userSchema,
-      "ID",
-      false,
-    );
-    expect(userTable.autoIncrement).toBe(false);
+    const userTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "ユーザー",
+      schema: userSchema,
+      primaryKey: "ID",
+    });
+
+    expect(userTable.autoNumbering).toBeUndefined();
   });
 
-  it("autoIncrement = true", () => {
+  it("autoNumbering = increment", () => {
     const userSchema = z.object({
       id: z.number().meta({ primaryKey: true, autoIncrement: true }),
       name: z.string().min(1).max(100),
       email: z.string(),
     });
 
-    const userTable = new SheetTable(
-      "your-db-id",
-      "ユーザー",
-      userSchema,
-      "id",
-      true,
-    );
-    expect(userTable.autoIncrement).toBe(true);
+    const userTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "ユーザー",
+      schema: userSchema,
+      primaryKey: "id",
+      autoNumbering: "increment",
+    });
+
+    expect(userTable.autoNumbering).toBe("increment");
   });
 
-  it("autoIncrement with non-number type error", () => {
+  it("increment auto-numbering with non-number type error", () => {
     const invalidSchema = z.object({
       ID: z.string().meta({ primary: true, autoIncrement: true }),
       名前: z.string(),
       メール: z.string().meta({ unique: true }),
     });
+
     expect(
-      () => new SheetTable("your-db-id", "ユーザー", invalidSchema, "ID", true),
+      () =>
+        new SheetTable({
+          dbId: "your-db-id",
+          name: "ユーザー",
+          schema: invalidSchema,
+          primaryKey: "ID",
+          autoNumbering: "increment",
+        }),
     ).toThrow(`Primary key field 'ID' must be a number to use auto-increment.`);
   });
 
@@ -77,16 +88,15 @@ describe("SheetTable", () => {
       メール: z.string(),
     });
 
-    const userTable = new SheetTable(
-      "your-db-id",
-      "ユーザー",
-      userSchema,
-      "ID",
-      true,
-      { autoNumberingMode: "uuid" },
-    );
+    const userTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "ユーザー",
+      schema: userSchema,
+      primaryKey: "ID",
+      autoNumbering: "uuid",
+    });
 
-    expect(userTable.autoNumberingMode).toBe("uuid");
+    expect(userTable.autoNumbering).toBe("uuid");
   });
 });
 
@@ -98,13 +108,13 @@ describe("関連テーブルの取得", () => {
       メール: z.string().meta({ unique: true }),
     });
 
-    const userTable = new SheetTable(
-      "your-db-id",
-      "ユーザー",
-      userSchema,
-      "ID",
-      true,
-    );
+    const userTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "ユーザー",
+      schema: userSchema,
+      primaryKey: "ID",
+      autoNumbering: "increment",
+    });
 
     const postSchema = z.object({
       ID: z.number().meta({ primary: true }),
@@ -113,13 +123,14 @@ describe("関連テーブルの取得", () => {
       著者ID: z.number().meta({ ref: userSchema }),
     });
 
-    const postTable = new SheetTable(
-      "your-db-id",
-      "投稿",
-      postSchema,
-      "ID",
-      true,
-    );
+    const postTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "投稿",
+      schema: postSchema,
+      primaryKey: "ID",
+      autoNumbering: "increment",
+    });
+
     postTable.reference("著者ID", userTable, "ID", "cascade");
     const relations = userTable.getRelationTree();
     expect(relations.length).toBe(1);
@@ -133,13 +144,13 @@ describe("関連テーブルの取得", () => {
       メール: z.string().meta({ unique: true }),
     });
 
-    const userTable = new SheetTable(
-      "your-db-id",
-      "ユーザー",
-      userSchema,
-      "ID",
-      true,
-    );
+    const userTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "ユーザー",
+      schema: userSchema,
+      primaryKey: "ID",
+      autoNumbering: "increment",
+    });
 
     const postSchema = z.object({
       ID: z.number().meta({ primary: true }),
@@ -148,13 +159,13 @@ describe("関連テーブルの取得", () => {
       著者ID: z.number().meta({ ref: userSchema }),
     });
 
-    const postTable = new SheetTable(
-      "your-db-id",
-      "投稿",
-      postSchema,
-      "ID",
-      true,
-    );
+    const postTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "投稿",
+      schema: postSchema,
+      primaryKey: "ID",
+      autoNumbering: "increment",
+    });
 
     postTable.reference("著者ID", userTable, "ID", "cascade");
 
@@ -164,13 +175,13 @@ describe("関連テーブルの取得", () => {
       投稿ID: z.number().meta({ ref: postSchema }),
     });
 
-    const commentTable = new SheetTable(
-      "your-db-id",
-      "コメント",
-      commentSchema,
-      "ID",
-      true,
-    );
+    const commentTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "コメント",
+      schema: commentSchema,
+      primaryKey: "ID",
+      autoNumbering: "increment",
+    });
 
     commentTable.reference("投稿ID", postTable, "ID", "cascade");
 
@@ -187,14 +198,14 @@ describe("関連テーブルの取得", () => {
       メール: z.string().meta({ unique: true }),
     });
 
-    const userTable = new SheetTable(
-      "your-db-id",
-      "ユーザー",
-      userSchema,
-      "ID",
-      true,
-    );
-    // 自己参照リレーションを追加
+    const userTable = new SheetTable({
+      dbId: "your-db-id",
+      name: "ユーザー",
+      schema: userSchema,
+      primaryKey: "ID",
+      autoNumbering: "increment",
+    });
+
     userTable.reference("ID", userTable, "ID", "cascade");
     const relations = userTable.getRelationTree();
     expect(relations.length).toBe(1);
@@ -205,7 +216,12 @@ describe("関連テーブルの取得", () => {
 describe("SheetTable lock/release", () => {
   it("lock がキャッシュにキーを設定する", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
     const cache = new InMemoryCacheService().getScriptCache();
     const utilities = new NodeUtilities();
 
@@ -216,7 +232,12 @@ describe("SheetTable lock/release", () => {
 
   it("lock を二重に呼んでもエラーにならない", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
     const cache = new InMemoryCacheService().getScriptCache();
     const utilities = new NodeUtilities();
 
@@ -230,10 +251,16 @@ describe("SheetTable lock/release", () => {
 
   it("releaseLock は未ロック時に何もしない", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     expect(() => table.releaseLock()).not.toThrow();
   });
+
   it("同一プロセス内では同じロックを再利用する", () => {
     vi.spyOn(Date, "now").mockReturnValue(0);
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
@@ -242,13 +269,12 @@ describe("SheetTable lock/release", () => {
     const cache = cacheService.getScriptCache();
     const utilities = new NodeUtilities();
 
-    const table = new SheetTable(
-      "db",
-      "users",
-      z.object({ id: z.number() }),
-      "id",
-      false,
-    );
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: z.object({ id: z.number() }),
+      primaryKey: "id",
+    });
 
     table.lock(cache, utilities);
     const firstToken = cache.get("db:users");
@@ -270,32 +296,24 @@ describe("SheetTable lock/release", () => {
     const cache = cacheService.getScriptCache();
     const utilities = new NodeUtilities();
 
-    const table = new SheetTable(
-      "db",
-      "users",
-      z.object({ id: z.number() }),
-      "id",
-      false,
-    );
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: z.object({ id: z.number() }),
+      primaryKey: "id",
+    });
 
-    // 最初のlockを取得
     table.lock(cache, utilities);
-
-    // 別ownerに奪われた状態を再現
     cache.put("db:users", "other", 300);
 
     const originalGet = cache.get.bind(cache);
 
     vi.spyOn(cache, "get")
-      // lockHeld確認 → 自分のtokenではない
       .mockReturnValueOnce("other")
-      // 再取得時 → lockが解放された
       .mockReturnValueOnce(null)
-      // put後のownership確認
       .mockImplementation((key) => originalGet(key));
 
     expect(() => table.lock(cache, utilities)).not.toThrow();
-
     expect(cache.get("db:users")).not.toBe("other");
 
     table.releaseLock();
@@ -311,13 +329,12 @@ describe("SheetTable lock/release", () => {
     const cache = cacheService.getScriptCache();
     const utilities = new NodeUtilities();
 
-    const table = new SheetTable(
-      "db",
-      "users",
-      z.object({ id: z.number() }),
-      "id",
-      false,
-    );
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: z.object({ id: z.number() }),
+      primaryKey: "id",
+    });
 
     table.lock(cache, utilities);
     cache.put("db:users", "other", 300);
@@ -340,13 +357,12 @@ describe("SheetTable lock/release", () => {
       now += 200;
     });
 
-    const table = new SheetTable(
-      "db",
-      "users",
-      z.object({ id: z.number() }),
-      "id",
-      false,
-    );
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: z.object({ id: z.number() }),
+      primaryKey: "id",
+    });
 
     expect(() => table.lock(cache, utilities)).toThrow("cache lock timeout");
     nowSpy.mockRestore();
@@ -365,33 +381,23 @@ describe("SheetTable lock/release", () => {
 
     vi.spyOn(cache, "get").mockImplementation(() => {
       getCount += 1;
-
-      // 1回目: ロックは空いている
       if (getCount === 1) return null;
-
-      // 1回目のput後確認: 他ownerに奪われた
       if (getCount === 2) return "other";
-
-      // 再試行: 再び空いている
       if (getCount === 3) return null;
-
-      // 2回目のput後確認: 自分が取得できた
       return ownerToken;
     });
 
     const utilities = new NodeUtilities();
     vi.spyOn(utilities, "sleep").mockImplementation(() => undefined);
 
-    const table = new SheetTable(
-      "db",
-      "users",
-      z.object({ id: z.number() }),
-      "id",
-      false,
-    );
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: z.object({ id: z.number() }),
+      primaryKey: "id",
+    });
 
     expect(() => table.lock(cache, utilities)).not.toThrow();
-
     expect(getCount).toBe(4);
 
     table.releaseLock();
@@ -404,13 +410,12 @@ describe("SheetTable lock/release", () => {
 
     vi.spyOn(utilities, "sleep").mockImplementation(() => undefined);
 
-    const table = new SheetTable(
-      "db",
-      "users",
-      z.object({ id: z.number() }),
-      "id",
-      false,
-    );
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: z.object({ id: z.number() }),
+      primaryKey: "id",
+    });
 
     table.releaseLock();
     table.lock(cache, utilities);
@@ -422,7 +427,12 @@ describe("SheetTable lock/release", () => {
 describe("SheetTable validate/getUniqueColumns", () => {
   it("validate はスキーマ違反でエラー", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     expect(() => table.validate({ id: "1" })).toThrow(
       "Schema validation failed",
@@ -431,7 +441,12 @@ describe("SheetTable validate/getUniqueColumns", () => {
 
   it("validate はスキーマ検証のみ", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     expect(() => table.validate({ id: 1 })).not.toThrow();
   });
@@ -442,7 +457,12 @@ describe("SheetTable validate/getUniqueColumns", () => {
       email: z.string().meta({ unique: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     expect(table.getUniqueColumns()).toEqual(["email"]);
   });

@@ -46,6 +46,13 @@ type CreateRelations<T extends readonly Relationable<any>[]> = Partial<{
   [K in T[number]["name"]]: CreateParams<T, TableByName<T, K>["schema"]>[];
 }>;
 
+export type SheetDBConfig<T extends readonly SheetTable<string, any>[]> = {
+  tables: T;
+  gateway: AccessableDataStore;
+  cacheService: GoogleAppsScript.Cache.CacheService;
+  utilities: GoogleAppsScript.Utilities.Utilities;
+};
+
 export class SheetDB<
   T extends readonly SheetTable<string, any>[],
   N extends T[number]["name"] = T[number]["name"],
@@ -53,15 +60,18 @@ export class SheetDB<
   private _table: TableByName<T, N>;
   private transactionEnabled = false;
   private cache: GoogleAppsScript.Cache.Cache;
+  private readonly tables: T;
+  private gateway: AccessableDataStore;
+  private CacheService: GoogleAppsScript.Cache.CacheService;
+  private Utilities: GoogleAppsScript.Utilities.Utilities;
 
-  constructor(
-    private readonly tables: T,
-    private gateway: AccessableDataStore,
-    private CacheService: GoogleAppsScript.Cache.CacheService,
-    private Utilities: GoogleAppsScript.Utilities.Utilities,
-  ) {
-    this._table = tables[0] as TableByName<T, N>;
-    this.cache = CacheService.getScriptCache();
+  constructor(config: SheetDBConfig<T>) {
+    this.tables = config.tables;
+    this.gateway = config.gateway;
+    this.CacheService = config.cacheService;
+    this.Utilities = config.utilities;
+    this._table = this.tables[0] as TableByName<T, N>;
+    this.cache = this.CacheService.getScriptCache();
   }
 
   public table<U extends T[number]["name"]>(name: U): SheetDB<T, U> {
@@ -184,7 +194,7 @@ export class SheetDB<
       const pkValue = record[this._table.primaryKey as string];
 
       if (isEmptyPrimaryKey(pkValue)) {
-        if (!this._table.autoIncrement) {
+        if (!this._table.autoNumbering) {
           throw new Error("Primary key is required for upsert.");
         }
 
@@ -205,7 +215,7 @@ export class SheetDB<
         return;
       }
 
-      if (this._table.autoIncrement) {
+      if (this._table.autoNumbering) {
         delete record[this._table.primaryKey as string];
       }
 
@@ -375,7 +385,6 @@ export class SheetDB<
     const cuttedRecords = query.cut(shiftedRecords);
 
     const joins = query.getJoins();
-
     if (joins.length <= 0) {
       return cuttedRecords;
     }

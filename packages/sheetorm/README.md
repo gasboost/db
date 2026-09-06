@@ -142,20 +142,20 @@ const userSchema = z.object({
   }),
 });
 
-const userTable = new SheetTable(
-  "SPREADSHEET_ID",
-  "users",
-  userSchema,
-  "id",
-  true,
-);
+const userTable = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "users",
+  schema: userSchema,
+  primaryKey: "id",
+  autoNumbering: "increment",
+});
 
-const db = new SheetDB(
-  [userTable] as const,
-  new SheetGateway(SpreadsheetApp),
-  CacheService,
-  Utilities,
-);
+const db = new SheetDB({
+  tables: [userTable] as const,
+  gateway: new SheetGateway(SpreadsheetApp),
+  cacheService: CacheService,
+  utilities: Utilities,
+});
 ```
 
 Google Sheets 側には `users` シートを用意します。
@@ -197,35 +197,34 @@ const userSchema = z.object({
   name: z.string(),
 });
 
-const userTable = new SheetTable(
-  "SPREADSHEET_ID",
-  "users",
-  userSchema,
-  "id",
-  false,
-);
+const userTable = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "users",
+  schema: userSchema,
+  primaryKey: "id",
+});
 ```
 
 基本形は以下です。
 
 ```ts
-new SheetTable(
-  spreadsheetId,
-  tableName,
+new SheetTable({
+  dbId,
+  name,
   schema,
   primaryKey,
-  autoIncrement,
-  options?,
-);
+  autoNumbering?,
+  versionColumn?,
+});
 ```
 
 ---
 
 # Primary Key
 
-Primary Key は `SheetTable` のコンストラクタで指定します。
+Primary Key は `SheetTable` の `primaryKey` プロパティで指定します。
 
-`schema` の metadata だけで Primary Key が決まるわけではなく、Table として利用する Primary Key は constructor の `primaryKey` 引数が基準です。
+`schema` の metadata だけで Primary Key が決まるわけではなく、Table として利用する Primary Key は `primaryKey` が基準です。
 
 ```ts
 const schema = z.object({
@@ -235,7 +234,12 @@ const schema = z.object({
   name: z.string(),
 });
 
-const table = new SheetTable("SPREADSHEET_ID", "users", schema, "id", false);
+const table = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "users",
+  schema,
+  primaryKey: "id",
+});
 ```
 
 ---
@@ -253,7 +257,13 @@ const schema = z.object({
   name: z.string(),
 });
 
-const table = new SheetTable("SPREADSHEET_ID", "users", schema, "id", true);
+const table = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "users",
+  schema,
+  primaryKey: "id",
+  autoNumbering: "increment",
+});
 ```
 
 Create 時には Primary Key を省略できます。
@@ -295,8 +305,12 @@ const schema = z.object({
   name: z.string(),
 });
 
-const table = new SheetTable("SPREADSHEET_ID", "users", schema, "id", true, {
-  autoNumberingMode: "uuid",
+const table = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "users",
+  schema,
+  primaryKey: "id",
+  autoNumbering: "uuid",
 });
 ```
 
@@ -362,7 +376,11 @@ const schema = z.object({
   version: z.number(),
 });
 
-const table = new SheetTable("SPREADSHEET_ID", "users", schema, "id", false, {
+const table = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "users",
+  schema,
+  primaryKey: "id",
   versionColumn: "version",
 });
 ```
@@ -404,7 +422,7 @@ Create は作成された Record を返します。
 created[0].name;
 ```
 
-Auto Increment / UUID が有効な場合は、採番後の Primary Key を含む Record が返ります。
+Auto Numbering が有効な場合は、採番後の Primary Key を含む Record が返ります。
 
 ---
 
@@ -466,9 +484,9 @@ const records = db.table("users").upsert([
 
 既存 Primary Key が存在する Record は Update されます。
 
-Primary Key が空で Auto Increment が有効な場合は Create されます。
+Primary Key が空で Auto Numbering が有効な場合は Create されます。
 
-Primary Key が存在しない Record についても、Auto Increment が有効なら新しい Primary Key が採番されます。
+Primary Key が存在しない Record についても、Auto Numbering が有効なら新しい Primary Key が採番されます。
 
 ---
 
@@ -1129,50 +1147,40 @@ const commentSchema = z.object({
   body: z.string(),
 });
 
-const userTable = new SheetTable(
-  "SPREADSHEET_ID",
-  "users",
-  userSchema,
-  "id",
-  true,
-  {
-    autoNumberingMode: "uuid",
-    versionColumn: "version",
-  },
-);
+const userTable = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "users",
+  schema: userSchema,
+  primaryKey: "id",
+  autoNumbering: "uuid",
+  versionColumn: "version",
+});
 
-const postTable = new SheetTable(
-  "SPREADSHEET_ID",
-  "posts",
-  postSchema,
-  "id",
-  true,
-  {
-    autoNumberingMode: "uuid",
-  },
-);
+const postTable = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "posts",
+  schema: postSchema,
+  primaryKey: "id",
+  autoNumbering: "uuid",
+});
 
-const commentTable = new SheetTable(
-  "SPREADSHEET_ID",
-  "comments",
-  commentSchema,
-  "id",
-  true,
-  {
-    autoNumberingMode: "uuid",
-  },
-);
+const commentTable = new SheetTable({
+  dbId: "SPREADSHEET_ID",
+  name: "comments",
+  schema: commentSchema,
+  primaryKey: "id",
+  autoNumbering: "uuid",
+});
 
 postTable.reference("userId", userTable, "id", "cascade");
-
 commentTable.reference("postId", postTable, "id", "cascade");
 
-const db = new SheetDB(
-  [userTable, postTable, commentTable] as const,
-  new SheetGateway(SpreadsheetApp),
-  CacheService,
-  Utilities,
-);
+const db = new SheetDB({
+  tables: [userTable, postTable, commentTable] as const,
+  gateway: new SheetGateway(SpreadsheetApp),
+  cacheService: CacheService,
+  utilities: Utilities,
+});
 
 db.migrate();
 

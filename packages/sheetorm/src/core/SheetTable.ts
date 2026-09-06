@@ -28,10 +28,6 @@ export class SheetTable<
   public readonly schema: Z;
   public readonly primaryKey: Columns<Z>;
   public readonly autoNumbering: AutoNumberingMode | undefined;
-  /** @deprecated Use autoNumbering instead. */
-  public readonly autoIncrement: boolean;
-  /** @deprecated Use autoNumbering instead. */
-  public readonly autoNumberingMode: AutoNumberingMode | null;
   public readonly cache: SheetCache;
   private lockToken: string | null = null;
   private lockHeld = false;
@@ -40,54 +36,12 @@ export class SheetTable<
   public readonly versionColumn: Columns<Z> | null = null;
   private relations: SheetRelation[] = [];
 
-  constructor(config: SheetTableConfig<N, Z>);
-  /** @deprecated Use the object-based constructor instead. */
-  constructor(
-    dbId: string,
-    name: N,
-    schema: Z,
-    primaryKey: Columns<Z>,
-    autoIncrement: boolean,
-    options?: {
-      versionColumn?: Columns<Z>;
-      autoNumberingMode?: AutoNumberingMode;
-    },
-    relations?: SheetRelation[],
-  );
-  constructor(
-    configOrDbId: SheetTableConfig<N, Z> | string,
-    name?: N,
-    schema?: Z,
-    primaryKey?: Columns<Z>,
-    autoIncrement?: boolean,
-    options?: {
-      versionColumn?: Columns<Z>;
-      autoNumberingMode?: AutoNumberingMode;
-    },
-    relations: SheetRelation[] = [],
-  ) {
-    const config: SheetTableConfig<N, Z> =
-      typeof configOrDbId === "string"
-        ? {
-            dbId: configOrDbId,
-            name: name as N,
-            schema: schema as Z,
-            primaryKey: primaryKey as Columns<Z>,
-            autoNumbering: autoIncrement
-              ? (options?.autoNumberingMode ?? "increment")
-              : undefined,
-            versionColumn: options?.versionColumn,
-          }
-        : configOrDbId;
-
+  constructor(config: SheetTableConfig<N, Z>) {
     this.dbId = config.dbId;
     this.name = config.name;
     this.schema = config.schema;
     this.primaryKey = config.primaryKey;
     this.autoNumbering = config.autoNumbering;
-    this.autoIncrement = config.autoNumbering !== undefined;
-    this.autoNumberingMode = config.autoNumbering ?? null;
-    this.relations = relations;
 
     const pkField = this.schema.shape[this.primaryKey as string];
     const isNumber = pkField._zod.def.type === "number";

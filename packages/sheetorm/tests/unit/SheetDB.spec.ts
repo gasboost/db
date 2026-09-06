@@ -11,17 +11,22 @@ import { InMemoryDataStore } from "../../src/storage/InMemoryDataStore";
 describe("SheetDB", () => {
   it("skips deleteCascade when no relations", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([["db:users", [["id"], [1], [2]]]]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
     expect(() => db.delete([1])).not.toThrow();
@@ -38,17 +43,24 @@ describe("SheetDB", () => {
       userId: z.number(),
     });
 
-    const userTable = new SheetTable("db", "users", userSchema, "id", false);
-
-    const postTable = new SheetTable("db", "posts", postSchema, "id", false);
-
-    const profileTable = new SheetTable(
-      "db",
-      "profiles",
-      profileSchema,
-      "id",
-      false,
-    );
+    const userTable = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: userSchema,
+      primaryKey: "id",
+    });
+    const postTable = new SheetTable({
+      dbId: "db",
+      name: "posts",
+      schema: postSchema,
+      primaryKey: "id",
+    });
+    const profileTable = new SheetTable({
+      dbId: "db",
+      name: "profiles",
+      schema: profileSchema,
+      primaryKey: "id",
+    });
 
     postTable.reference("userId", userTable, "id", "cascade");
     profileTable.reference("userId", userTable, "id", "cascade");
@@ -72,12 +84,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [userTable, postTable, profileTable],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [userTable, postTable, profileTable] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
     expect(() => db.delete([1])).not.toThrow();
@@ -90,15 +102,18 @@ describe("SheetDB", () => {
       userId: z.number(),
     });
 
-    const userTable = new SheetTable("db", "users", userSchema, "id", false);
-
-    const childTable = new SheetTable(
-      "db",
-      "children",
-      childSchema,
-      "id",
-      false,
-    );
+    const userTable = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: userSchema,
+      primaryKey: "id",
+    });
+    const childTable = new SheetTable({
+      dbId: "db",
+      name: "children",
+      schema: childSchema,
+      primaryKey: "id",
+    });
 
     childTable.reference("userId", userTable, "id", "cascade");
     childTable.reference("userId", userTable, "id", "cascade");
@@ -115,12 +130,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [userTable, childTable],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [userTable, childTable] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
     expect(() => db.delete([1])).not.toThrow();
@@ -128,17 +143,22 @@ describe("SheetDB", () => {
 
   it("commits delete diff during transaction", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([["db:users", [["id"], [1], [2]]]]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.transaction(() => {
       db.table("users");
@@ -151,17 +171,22 @@ describe("SheetDB", () => {
 
   it("commits delete diff when called directly", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([["db:users", [["id"], [1], [2]]]]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
     table.cache.add(
@@ -184,7 +209,12 @@ describe("SheetDB", () => {
       id: z.number().meta({ primary: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -198,12 +228,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     expect(store.dump()).toEqual([
       ["id", "name", "version"],
@@ -234,7 +264,11 @@ describe("SheetDB", () => {
       name: z.string(),
       version: z.number(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false, {
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
       versionColumn: "version",
     });
 
@@ -249,12 +283,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
     const taro = {
@@ -285,7 +319,11 @@ describe("SheetDB", () => {
       name: z.string(),
       version: z.number(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false, {
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
       versionColumn: "version",
     });
 
@@ -300,12 +338,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     const result = db.transaction(() => {
       db.table("users");
@@ -337,7 +375,13 @@ describe("SheetDB", () => {
       id: z.number().meta({ primary: true, autoIncrement: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", true);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+      autoNumbering: "increment",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -350,12 +394,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
     const result = db.upsert([
@@ -383,7 +427,12 @@ describe("SheetDB", () => {
       id: z.number().meta({ primary: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -396,12 +445,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
     const result = db.upsert([
@@ -437,7 +486,12 @@ describe("SheetDB", () => {
       id: z.number().meta({ primary: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -450,12 +504,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.transaction(() => {
       db.table("users");
@@ -483,7 +537,12 @@ describe("SheetDB", () => {
       id: z.number().meta({ primary: true }),
       email: z.string().meta({ unique: true }),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([
@@ -496,12 +555,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
 
@@ -521,7 +580,11 @@ describe("SheetDB", () => {
       name: z.string(),
       version: z.number(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false, {
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
       versionColumn: "version",
     });
 
@@ -536,12 +599,12 @@ describe("SheetDB", () => {
         ],
       ]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
 
@@ -561,17 +624,22 @@ describe("SheetDB", () => {
       id: z.number().meta({ primary: true }),
       name: z.string(),
     });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
 
     const store = new InMemoryDataStore(
       new Map([["db:users", [["id", "name"]]]]),
     );
-    const db = new SheetDB(
-      [table],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users");
 
@@ -594,15 +662,18 @@ describe("SheetDB", () => {
       userId: z.string(),
     });
 
-    const userTable = new SheetTable("db", "users", userSchema, "id", false);
-
-    const employeeTable = new SheetTable(
-      "db",
-      "employees",
-      employeeSchema,
-      "userId",
-      false,
-    );
+    const userTable = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: userSchema,
+      primaryKey: "id",
+    });
+    const employeeTable = new SheetTable({
+      dbId: "db",
+      name: "employees",
+      schema: employeeSchema,
+      primaryKey: "userId",
+    });
 
     employeeTable.reference("userId", userTable, "id", "cascade");
 
@@ -610,12 +681,12 @@ describe("SheetDB", () => {
     store.set("db:users", [["id"], ["1"]]);
     store.set("db:employees", [["userId"], ["1"]]);
 
-    const db = new SheetDB(
-      [userTable, employeeTable],
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [userTable, employeeTable] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     db.table("users").delete(["1", "2"]);
 
@@ -637,9 +708,18 @@ describe("SheetDB", () => {
         title: z.string(),
       });
 
-      const userTable = new SheetTable("db", "users", userSchema, "id", false);
-
-      const postTable = new SheetTable("db", "posts", postSchema, "id", false);
+      const userTable = new SheetTable({
+        dbId: "db",
+        name: "users",
+        schema: userSchema,
+        primaryKey: "id",
+      });
+      const postTable = new SheetTable({
+        dbId: "db",
+        name: "posts",
+        schema: postSchema,
+        primaryKey: "id",
+      });
 
       const store = new InMemoryDataStore(
         new Map([
@@ -648,22 +728,19 @@ describe("SheetDB", () => {
         ]),
       );
 
-      const db = new SheetDB(
-        [userTable, postTable] as const,
-        new InMemoryGateway(store),
-        new InMemoryCacheService(),
-        new NodeUtilities(),
-      );
+      const db = new SheetDB({
+        tables: [userTable, postTable] as const,
+        gateway: new InMemoryGateway(store),
+        cacheService: new InMemoryCacheService(),
+        utilities: new NodeUtilities(),
+      });
 
       const userLock = vi.spyOn(userTable, "lock");
       const userRelease = vi.spyOn(userTable, "releaseLock");
       const postLock = vi.spyOn(postTable, "lock");
       const postRelease = vi.spyOn(postTable, "releaseLock");
 
-      // _table を users にしておく。
-      // 旧実装だと users が2回lockされて posts がlockされない。
       db.table("users");
-
       db.migrate();
 
       expect(userLock).toHaveBeenCalledTimes(1);
@@ -672,6 +749,7 @@ describe("SheetDB", () => {
       expect(postRelease).toHaveBeenCalledTimes(1);
     });
   });
+
   describe("seed", () => {
     it("lock取得後に空判定してinsertする", () => {
       const schema = z.object({
@@ -679,7 +757,12 @@ describe("SheetDB", () => {
         name: z.string(),
       });
 
-      const table = new SheetTable("db", "users", schema, "id", false);
+      const table = new SheetTable({
+        dbId: "db",
+        name: "users",
+        schema,
+        primaryKey: "id",
+      });
 
       const store = new InMemoryDataStore(
         new Map([["db:users", [["id", "name"]]]]),
@@ -687,12 +770,12 @@ describe("SheetDB", () => {
 
       const gateway = new InMemoryGateway(store);
 
-      const db = new SheetDB(
-        [table] as const,
+      const db = new SheetDB({
+        tables: [table] as const,
         gateway,
-        new InMemoryCacheService(),
-        new NodeUtilities(),
-      );
+        cacheService: new InMemoryCacheService(),
+        utilities: new NodeUtilities(),
+      });
 
       const calls: string[] = [];
 
@@ -720,53 +803,46 @@ describe("SheetDB", () => {
   });
 
   it("transaction内のcascade delete後に後続commandが失敗した場合は子孫までrollbackする", () => {
-    const parentSchema = z.object({
-      id: z.number().meta({ primary: true }),
-    });
-
+    const parentSchema = z.object({ id: z.number().meta({ primary: true }) });
     const childSchema = z.object({
       id: z.number().meta({ primary: true }),
       parentId: z.number(),
     });
-
     const grandChildSchema = z.object({
       id: z.number().meta({ primary: true }),
       childId: z.number(),
     });
-
     const otherSchema = z.object({
       id: z.number().meta({ primary: true }),
       name: z.string(),
     });
 
-    const parentTable = new SheetTable(
-      "db",
-      "parents",
-      parentSchema,
-      "id",
-      false,
-    );
-
-    const childTable = new SheetTable(
-      "db",
-      "children",
-      childSchema,
-      "id",
-      false,
-    );
-
-    const grandChildTable = new SheetTable(
-      "db",
-      "grand_children",
-      grandChildSchema,
-      "id",
-      false,
-    );
-
-    const otherTable = new SheetTable("db", "others", otherSchema, "id", false);
+    const parentTable = new SheetTable({
+      dbId: "db",
+      name: "parents",
+      schema: parentSchema,
+      primaryKey: "id",
+    });
+    const childTable = new SheetTable({
+      dbId: "db",
+      name: "children",
+      schema: childSchema,
+      primaryKey: "id",
+    });
+    const grandChildTable = new SheetTable({
+      dbId: "db",
+      name: "grand_children",
+      schema: grandChildSchema,
+      primaryKey: "id",
+    });
+    const otherTable = new SheetTable({
+      dbId: "db",
+      name: "others",
+      schema: otherSchema,
+      primaryKey: "id",
+    });
 
     childTable.reference("parentId", parentTable, "id", "cascade");
-
     grandChildTable.reference("childId", childTable, "id", "cascade");
 
     const store = new InMemoryDataStore(
@@ -792,12 +868,12 @@ describe("SheetDB", () => {
       ]),
     );
 
-    const db = new SheetDB(
-      [parentTable, childTable, grandChildTable, otherTable] as const,
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [parentTable, childTable, grandChildTable, otherTable] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     expect(() =>
       db.transaction(() => {
@@ -813,52 +889,46 @@ describe("SheetDB", () => {
     ).toThrow();
 
     expect(store.get("db:parents").rows).toEqual([[1], [2]]);
-
     expect(store.get("db:children").rows).toEqual([
       [10, 1],
       [20, 2],
     ]);
-
     expect(store.get("db:grand_children").rows).toEqual([
       [100, 10],
       [200, 20],
     ]);
-
     expect(store.get("db:others").rows).toEqual([]);
   });
 
   it("transaction内のset null delete後に後続commandが失敗した場合は外部キーもrollbackする", () => {
-    const parentSchema = z.object({
-      id: z.number().meta({ primary: true }),
-    });
-
+    const parentSchema = z.object({ id: z.number().meta({ primary: true }) });
     const childSchema = z.object({
       id: z.number().meta({ primary: true }),
       parentId: z.number().nullable(),
     });
-
     const otherSchema = z.object({
       id: z.number().meta({ primary: true }),
       name: z.string(),
     });
 
-    const parentTable = new SheetTable(
-      "db",
-      "parents",
-      parentSchema,
-      "id",
-      false,
-    );
-
-    const childTable = new SheetTable(
-      "db",
-      "children",
-      childSchema,
-      "id",
-      false,
-    );
-
-    const otherTable = new SheetTable("db", "others", otherSchema, "id", false);
+    const parentTable = new SheetTable({
+      dbId: "db",
+      name: "parents",
+      schema: parentSchema,
+      primaryKey: "id",
+    });
+    const childTable = new SheetTable({
+      dbId: "db",
+      name: "children",
+      schema: childSchema,
+      primaryKey: "id",
+    });
+    const otherTable = new SheetTable({
+      dbId: "db",
+      name: "others",
+      schema: otherSchema,
+      primaryKey: "id",
+    });
 
     childTable.reference("parentId", parentTable, "id", "set null");
 
@@ -877,12 +947,12 @@ describe("SheetDB", () => {
       ]),
     );
 
-    const db = new SheetDB(
-      [parentTable, childTable, otherTable] as const,
-      new InMemoryGateway(store),
-      new InMemoryCacheService(),
-      new NodeUtilities(),
-    );
+    const db = new SheetDB({
+      tables: [parentTable, childTable, otherTable] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
 
     expect(() =>
       db.transaction(() => {
@@ -898,12 +968,10 @@ describe("SheetDB", () => {
     ).toThrow();
 
     expect(store.get("db:parents").rows).toEqual([[1], [2]]);
-
     expect(store.get("db:children").rows).toEqual([
       [10, 1],
       [20, 2],
     ]);
-
     expect(store.get("db:others").rows).toEqual([]);
   });
 });

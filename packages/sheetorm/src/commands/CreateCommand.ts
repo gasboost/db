@@ -23,12 +23,12 @@ export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
       return record;
     });
     // 自動採番ではない時
-    if (!this.table.autoIncrement) {
+    if (!this.table.autoNumbering) {
       this.diff = normalized;
       return;
     }
 
-    if (this.table.autoNumberingMode === "uuid") {
+    if (this.table.autoNumbering === "uuid") {
       normalized.forEach((param) => {
         const record = param as Record<string, any>;
         record[this.table.primaryKey as string] = this.Utilities.getUuid();
@@ -210,8 +210,8 @@ export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
           );
 
           let childParams = child.params;
-          if (childTable.autoIncrement) {
-            if (childTable.autoNumberingMode === "uuid") {
+          if (childTable.autoNumbering) {
+            if (childTable.autoNumbering === "uuid") {
               childParams = childParams.map((param) => ({
                 ...param,
                 [childTable.primaryKey as string]:
@@ -342,7 +342,7 @@ export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
 
         children.forEach((child) => {
           if (
-            childTable.autoNumberingMode === "uuid" &&
+            childTable.autoNumbering === "uuid" &&
             child[childTable.primaryKey as string] == null
           ) {
             child[childTable.primaryKey as string] = this.Utilities.getUuid();

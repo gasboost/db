@@ -33,7 +33,12 @@ describe("SheetCache", () => {
 
   it("setExsist/getExsist が値を保持する", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
-    const table = new SheetTable("db", "users", schema, "id", false);
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema,
+      primaryKey: "id",
+    });
     const records = new SheetRecords(
       [{ id: 1 }, { id: 2 }],
       table.primaryKey as string,

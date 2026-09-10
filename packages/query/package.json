@@ -1,0 +1,47 @@
+{
+  "name": "@gasboost/query",
+  "version": "0.1.0",
+  "description": "Type-safe, storage-agnostic query engine powered by Zod",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gasboost/db.git",
+    "directory": "packages/query"
+  },
+  "license": "MIT",
+  "author": "tiger-oshima",
+  "keywords": [
+    "query",
+    "query-builder",
+    "database",
+    "zod",
+    "typescript",
+    "type-safe",
+    "join"
+  ],
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "zod": "^4.5.4"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "pack:check": "pnpm pack"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

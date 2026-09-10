@@ -12,6 +12,17 @@ export type ReplicaTableDefinition<
   readonly primaryKey: PK;
 };
 
+export type ValidReplicaTables<T extends readonly ReplicaTableDefinition[]> = {
+  readonly [K in keyof T]: T[K] extends {
+    readonly schema: infer S extends z.ZodObject<any>;
+    readonly primaryKey: infer PK;
+  }
+    ? PK extends Extract<keyof z.infer<S>, string>
+      ? T[K]
+      : never
+    : never;
+};
+
 export type ReplicaTableByName<
   T extends readonly ReplicaTableDefinition[],
   N extends T[number]["name"],

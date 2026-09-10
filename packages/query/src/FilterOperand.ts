@@ -1,11 +1,24 @@
 export class FilterOperand {
   constructor(private values: (string | number | Date | boolean)[]) {
-    if (values.length === 0) throw new Error("values must not be empty");
+    if (values.length === 0) {
+      throw new Error("values must not be empty");
+    }
+
+    if (values[0] instanceof Date) {
+      const isSameType = values.every((value) => value instanceof Date);
+
+      if (!isSameType) {
+        throw new Error("values must be all the same type");
+      }
+
+      return;
+    }
+
     const firstType = typeof values[0];
-    if (firstType === "object") return;
 
     const isSameType = values.every(
-      (v) => v !== null && v !== undefined && typeof v === firstType,
+      (value) =>
+        value !== null && value !== undefined && typeof value === firstType,
     );
 
     if (!isSameType) {
@@ -14,7 +27,7 @@ export class FilterOperand {
   }
 
   isDate(): boolean {
-    return Object.prototype.toString.call(this.values[0]) === "[object Date]";
+    return this.values[0] instanceof Date;
   }
 
   getValue() {
@@ -25,7 +38,8 @@ export class FilterOperand {
     if (!this.isDate()) {
       throw new Error("values are not Date type");
     }
-    return this.values.map((v) => (v as Date).getTime());
+
+    return this.values.map((value) => (value as Date).getTime());
   }
 
   isStringOrBoolean(): boolean {

@@ -68,4 +68,15 @@ describe("FilterOperand", () => {
 
     expect(() => operand.getTimes()).toThrow("values are not Date type");
   });
+
+  it("Dateと異なる型の値が混在している場合は拒否する", () => {
+    expect(
+      () => new FilterOperand([new Date("2026-01-01T00:00:00Z"), "2026-01-02"]),
+    ).toThrow("values must be all the same type");
+  });
+  it("Date以外から始まるmixed arrayも拒否する", () => {
+    expect(
+      () => new FilterOperand(["2026-01-01", new Date("2026-01-02T00:00:00Z")]),
+    ).toThrow("values must be all the same type");
+  });
 });

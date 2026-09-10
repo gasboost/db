@@ -1,22 +1,22 @@
 {
-  "name": "@gasboost/query",
-  "version": "0.1.2",
-  "description": "Type-safe, storage-agnostic query engine powered by Zod",
+  "name": "@gasboost/replica",
+  "version": "0.1.0",
+  "description": "Type-safe IndexedDB replica powered by Dexie and Zod",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gasboost/db.git",
-    "directory": "packages/query"
+    "directory": "packages/replica"
   },
   "license": "MIT",
   "author": "tiger-oshima",
   "keywords": [
-    "query",
-    "query-builder",
-    "database",
+    "indexeddb",
+    "dexie",
+    "replica",
+    "offline",
     "zod",
     "typescript",
-    "type-safe",
-    "join"
+    "type-safe"
   ],
   "type": "commonjs",
   "main": "./dist/index.js",
@@ -33,7 +33,12 @@
     "README.md"
   ],
   "dependencies": {
-    "zod": "^4.5.4"
+    "dexie": "^4.4.6",
+    "zod": "^4.5.4",
+    "@gasboost/query": "workspace:*"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

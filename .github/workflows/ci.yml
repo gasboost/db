@@ -41,6 +41,18 @@ jobs:
       - name: Pack query
         run: pnpm --filter @gasboost/query pack:check
 
+      - name: Typecheck replica
+        run: pnpm --filter @gasboost/replica typecheck
+
+      - name: Test replica
+        run: pnpm --filter @gasboost/replica test
+
+      - name: Build replica
+        run: pnpm --filter @gasboost/replica build
+
+      - name: Pack replica
+        run: pnpm --filter @gasboost/replica pack:check
+
       - name: Typecheck sheetorm
         run: pnpm --filter @gasboost/sheetorm typecheck
 

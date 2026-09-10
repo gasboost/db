@@ -1380,7 +1380,3 @@ Domain Model の構築や Business Logic は SheetORM の責務ではありま�
 # License
 
 MIT
-
-```
-
-```

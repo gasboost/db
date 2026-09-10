@@ -58,11 +58,7 @@ Table
 - `SheetGateway` — Google Sheets への読み書きを担当する Gateway
 
 ```ts
-import {
-  SheetDB,
-  SheetGateway,
-  SheetTable,
-} from "@gasboost/sheetorm";
+import { SheetDB, SheetGateway, SheetTable } from "@gasboost/sheetorm";
 ```
 
 内部の Command、Query 実装、Cache などは package の public entry point からは公開していません。
@@ -1337,6 +1333,27 @@ Domain Entity が必要な場合は、利用側の Repository などで変換し
 
 ---
 
+### SpreadsheetApp Stub
+
+Node/Vite 上で GAS の entry module を評価する場合、`SpreadsheetApp` は利用できません。
+
+`SpreadsheetAppStub` は、コンテナバインドされた Spreadsheet ID を参照する初期化コードを成立させるための最小 Stub です。
+
+```ts
+import { SpreadsheetAppStub } from "@gasboost/sheetorm";
+
+const databaseId = SpreadsheetAppStub.getActive().getId();
+```
+
+`getActive().getId()` は固定の ID を返します。
+
+この Stub は Spreadsheet の読み書きを再現する Fake / emulator ではありません。
+`getRange()`, `getValues()`, `setValue()` などの Spreadsheet 操作 API は提供しません。
+
+実際のデータ操作を含むテストでは、用途に応じて SheetORM の InMemory 実装を使用してください。
+
+---
+
 # Design Principle
 
 SheetORM の責務は、
@@ -1363,3 +1380,7 @@ Domain Model の構築や Business Logic は SheetORM の責務ではありま�
 # License
 
 MIT
+
+```
+
+```

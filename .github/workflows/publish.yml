@@ -1,32 +1,82 @@
 name: Publish
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
     branches:
       - main
-    paths:
-      - "packages/sheetorm/**"
-      - "pnpm-lock.yaml"
-      - "package.json"
-      - ".github/workflows/publish.yml"
-
-permissions:
-  contents: read
-  id-token: write
 
 jobs:
-  publish:
+  check-versions:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    outputs:
+      publish-sheetorm: ${{ steps.versions.outputs.publish-sheetorm }}
+      publish-query: ${{ steps.versions.outputs.publish-query }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Check package versions
+        id: versions
+        run: |
+          check_package() {
+            local output="$1"
+            local manifest="$2"
+            local name
+            local version
+
+            name=$(node -p "require('./${manifest}').name")
+            version=$(node -p "require('./${manifest}').version")
+
+            echo "${name}@${version}"
+
+            if npm view "${name}@${version}" version > /dev/null 2>&1; then
+              echo "${output}=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "${output}=true" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          check_package publish-sheetorm packages/sheetorm/package.json
+          check_package publish-query packages/query/package.json
+
+  publish:
+    needs: check-versions
+    if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-query == 'true' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -35,15 +85,46 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
+      - name: Typecheck sheetorm
+        if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/sheetorm typecheck
 
-      - name: Test
+      - name: Test sheetorm
+        if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/sheetorm test
 
-      - name: Build
+      - name: Build sheetorm
+        if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/sheetorm build
 
-      - name: Publish
+      - name: Typecheck query
+        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
+        run: pnpm --filter @gasboost/query typecheck
+
+      - name: Test query
+        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
+        run: pnpm --filter @gasboost/query test
+
+      - name: Build query
+        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
+        run: pnpm --filter @gasboost/query build
+
+      - name: Verify sheetorm package contents
+        if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
         working-directory: packages/sheetorm
-        run: npm publish --access public
+        run: pnpm pack
+
+      - name: Publish sheetorm
+        if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
+        working-directory: packages/sheetorm
+        run: pnpm publish --access public --no-git-checks
+
+      - name: Verify query package contents
+        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
+        working-directory: packages/query
+        run: pnpm pack
+
+      - name: Publish query
+        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
+        working-directory: packages/query
+        run: pnpm publish --access public --no-git-checks

@@ -29,6 +29,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Typecheck query
+        run: pnpm --filter @gasboost/query typecheck
+
+      - name: Test query
+        run: pnpm --filter @gasboost/query test
+
+      - name: Build query
+        run: pnpm --filter @gasboost/query build
+
+      - name: Pack query
+        run: pnpm --filter @gasboost/query pack:check
+
       - name: Typecheck sheetorm
         run: pnpm --filter @gasboost/sheetorm typecheck
 

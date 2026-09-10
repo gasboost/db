@@ -20,6 +20,7 @@ jobs:
     outputs:
       publish-sheetorm: ${{ steps.versions.outputs.publish-sheetorm }}
       publish-query: ${{ steps.versions.outputs.publish-query }}
+      publish-replica: ${{ steps.versions.outputs.publish-replica }}
 
     steps:
       - name: Checkout
@@ -54,12 +55,13 @@ jobs:
             fi
           }
 
-          check_package publish-sheetorm packages/sheetorm/package.json
           check_package publish-query packages/query/package.json
+          check_package publish-replica packages/replica/package.json
+          check_package publish-sheetorm packages/sheetorm/package.json
 
   publish:
     needs: check-versions
-    if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-query == 'true' }}
+    if: ${{ needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' }}
     runs-on: ubuntu-latest
 
     permissions:
@@ -85,6 +87,33 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # query は replica の workspace dependency。
+      # 将来 sheetorm も query に依存する予定なので、
+      # いずれかを publish する場合は先に query の dist を生成する。
+      - name: Typecheck query
+        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
+        run: pnpm --filter @gasboost/query typecheck
+
+      - name: Test query
+        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
+        run: pnpm --filter @gasboost/query test
+
+      - name: Build query
+        if: ${{ needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' }}
+        run: pnpm --filter @gasboost/query build
+
+      - name: Typecheck replica
+        if: ${{ needs.check-versions.outputs.publish-replica == 'true' }}
+        run: pnpm --filter @gasboost/replica typecheck
+
+      - name: Test replica
+        if: ${{ needs.check-versions.outputs.publish-replica == 'true' }}
+        run: pnpm --filter @gasboost/replica test
+
+      - name: Build replica
+        if: ${{ needs.check-versions.outputs.publish-replica == 'true' }}
+        run: pnpm --filter @gasboost/replica build
+
       - name: Typecheck sheetorm
         if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/sheetorm typecheck
@@ -97,17 +126,26 @@ jobs:
         if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/sheetorm build
 
-      - name: Typecheck query
+      # 依存元から先に publish する。
+      - name: Verify query package contents
         if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
-        run: pnpm --filter @gasboost/query typecheck
+        working-directory: packages/query
+        run: pnpm pack
 
-      - name: Test query
+      - name: Publish query
         if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
-        run: pnpm --filter @gasboost/query test
+        working-directory: packages/query
+        run: pnpm publish --access public --no-git-checks
 
-      - name: Build query
-        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
-        run: pnpm --filter @gasboost/query build
+      - name: Verify replica package contents
+        if: ${{ needs.check-versions.outputs.publish-replica == 'true' }}
+        working-directory: packages/replica
+        run: pnpm pack
+
+      - name: Publish replica
+        if: ${{ needs.check-versions.outputs.publish-replica == 'true' }}
+        working-directory: packages/replica
+        run: pnpm publish --access public --no-git-checks
 
       - name: Verify sheetorm package contents
         if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
@@ -117,14 +155,4 @@ jobs:
       - name: Publish sheetorm
         if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
         working-directory: packages/sheetorm
-        run: pnpm publish --access public --no-git-checks
-
-      - name: Verify query package contents
-        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
-        working-directory: packages/query
-        run: pnpm pack
-
-      - name: Publish query
-        if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
-        working-directory: packages/query
         run: pnpm publish --access public --no-git-checks

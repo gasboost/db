@@ -76,41 +76,46 @@ jobs:
 
       - name: Pack and smoke test sheetorm
         run: |
+          pnpm --filter @gasboost/query pack
           pnpm --filter @gasboost/sheetorm pack
 
-          PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-sheetorm-*.tgz' -print -quit)"
+          QUERY_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-query-*.tgz' -print -quit)"
+          SHEETORM_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-sheetorm-*.tgz' -print -quit)"
 
           rm -rf /tmp/sheetorm-consumer
           mkdir -p /tmp/sheetorm-consumer
           cd /tmp/sheetorm-consumer
 
           pnpm init
-          pnpm add "$PACKAGE_FILE"
+
+          pnpm add "$QUERY_PACKAGE_FILE"
+          pnpm add "$SHEETORM_PACKAGE_FILE"
+
           pnpm add -D typescript @types/google-apps-script
 
           cat > index.ts <<'EOF'
           import {
-          SheetDB,
-          SheetGateway,
-          SheetTable,
+            SheetDB,
+            SheetGateway,
+            SheetTable,
           } from "@gasboost/sheetorm";
 
           console.log(
-          typeof SheetDB,
-          typeof SheetGateway,
-          typeof SheetTable,
+            typeof SheetDB,
+            typeof SheetGateway,
+            typeof SheetTable,
           );
           EOF
 
           cat > tsconfig.json <<'EOF'
           {
-          "compilerOptions": {
+            "compilerOptions": {
               "target": "ES2022",
               "strict": true,
               "types": ["google-apps-script"],
               "skipLibCheck": true
-          },
-          "include": ["index.ts"]
+            },
+            "include": ["index.ts"]
           }
           EOF
 

@@ -1,24 +1,24 @@
+````markdown
 # @gasboost/query
 
 Zod Schema を利用した、型安全でストレージ非依存の Query Engine です。
 
-`@gasboost/query` は Query の構築、Filter、Sort、Offset、Limit、JOIN、および再帰的な JOIN 解決を提供します。
+`@gasboost/query` は、問い合わせを定義する `Query` と、その Query を Record に対して評価・解決する `QueryEvaluation` を提供します。
 
-Google Sheets、IndexedDB、その他のデータストアには依存せず、テーブルから Record を取得する `Loader` を渡すことで同じ Query を異なるストレージに対して利用できます。
+Google Sheets、IndexedDB、その他のデータストアには依存しません。
 
 ```text
-@gasboost/query
+Query
+  ↓
+QueryEvaluation
+  ├─ Loader
+  └─ JoinResolver
        ↓
-   Query / Join
-       ↓
-     Loader
-    ↙      ↘
+  ┌────┴─────┐
 SheetORM   Replica
-    ↓        ↓
-Sheets   IndexedDB
+   ↓          ↓
+Sheets    IndexedDB
 ```
-
----
 
 ## Features
 
@@ -31,6 +31,7 @@ Sheets   IndexedDB
 - JOIN
 - Nested JOIN
 - Recursive Query Resolution
+- JOIN の出力形式をストレージ側で定義可能
 - Storage Agnostic
 - Async Loader
 - Google Apps Script / Dexie / IndexedDB 非依存
@@ -99,17 +100,24 @@ const tables = [
 
 # Query
 
+`Query` は問い合わせそのものを表現する DSL です。
+
 ```ts
 import { Query } from "@gasboost/query";
 
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-});
+const query = new Query<typeof tables, "users">("users");
 ```
 
 Query の対象 Table は型として保持されます。
 
 そのため、Query で利用できる Column は対象 Table の Zod Schema から推論されます。
+
+`Query` 自身は Record の評価やストレージ I/O を行いません。
+
+```text
+Query
+  = 問い合わせの定義
+```
 
 ---
 
@@ -118,9 +126,7 @@ Query の対象 Table は型として保持されます。
 ## AND
 
 ```ts
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-})
+const query = new Query<typeof tables, "users">("users")
   .and("active", "=", [true])
   .and("age", ">=", [20]);
 ```
@@ -130,9 +136,7 @@ const query = new Query<typeof tables, "users">({
 ## OR
 
 ```ts
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-})
+const query = new Query<typeof tables, "users">("users")
   .or("name", "=", ["Alice"])
   .or("name", "=", ["Bob"]);
 ```
@@ -142,9 +146,7 @@ OR 条件のうち1つ以上を満たす Record が対象になります。
 AND と OR は組み合わせられます。
 
 ```ts
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-})
+const query = new Query<typeof tables, "users">("users")
   .and("active", "=", [true])
   .or("name", "=", ["Alice"])
   .or("name", "=", ["Bob"]);
@@ -175,16 +177,14 @@ query.and("age", ">=", [20]);
 query.and("name", "*", ["Ali"]);
 ```
 
-Operator と Operand の組み合わせは実行時にも検証されます。
+Column と値の型は対象 Table の Zod Schema から推論されます。
 
 ---
 
 # Order By
 
 ```ts
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-}).orderBy("name", "asc");
+const query = new Query<typeof tables, "users">("users").orderBy("name", "asc");
 ```
 
 降順:
@@ -198,14 +198,10 @@ query.orderBy("name", "desc");
 # Limit / Offset
 
 ```ts
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-})
-  .offset(20)
-  .limit(10);
+const query = new Query<typeof tables, "users">("users").offset(20).limit(10);
 ```
 
-Query は次の順番で Record に適用されます。
+Query は評価時に次の順番で Record へ適用されます。
 
 ```text
 Filter
@@ -219,17 +215,83 @@ Limit
 
 ---
 
-# Apply
+# QueryEvaluation
 
-取得済みの Record 配列へ Query を直接適用できます。
+`QueryEvaluation` は `Query` を Record に対して評価・解決する責務を持ちます。
 
 ```ts
-const result = query.apply(records);
+import { Query, QueryEvaluation } from "@gasboost/query";
+
+const query = new Query<typeof tables, "users">("users").and("active", "=", [
+  true,
+]);
+
+const evaluation = new QueryEvaluation(query, load, joinResolver);
+```
+
+責務は次のように分離されています。
+
+```text
+Query
+  = 問い合わせ定義
+
+QueryEvaluation
+  = 問い合わせの評価・解決
+```
+
+---
+
+# Apply
+
+取得済みの Record 配列へ Query を適用する場合は `QueryEvaluation.apply()` を利用します。
+
+```ts
+const query = new Query<typeof tables, "users">("users").and("active", "=", [
+  true,
+]);
+
+const evaluation = new QueryEvaluation(query, load, joinResolver);
+
+const result = evaluation.apply(records);
 ```
 
 `apply()` はストレージ I/O を行いません。
 
-Record 配列に対する純粋な Query 処理のみを行います。
+Record 配列に対して次の処理を行います。
+
+```text
+Filter
+  ↓
+Sort
+  ↓
+Offset
+  ↓
+Limit
+```
+
+---
+
+# Loader
+
+`QueryEvaluation` は Record の取得方法を知りません。
+
+代わりに、Table 名を受け取って Record を返す Loader を渡します。
+
+```ts
+const load = async (tableName: string): Promise<Record<string, unknown>[]> => {
+  // 任意の storage から Record を取得
+};
+```
+
+例えば Google Sheets、IndexedDB、In-Memory Store など、任意のストレージへ接続できます。
+
+```text
+QueryEvaluation
+      ↓
+    Loader
+   ↙     ↘
+Sheets   IndexedDB
+```
 
 ---
 
@@ -238,9 +300,11 @@ Record 配列に対する純粋な Query 処理のみを行います。
 異なる Table の Record を型安全に JOIN できます。
 
 ```ts
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-}).join("id", "reservations", "userId");
+const query = new Query<typeof tables, "users">("users").join(
+  "id",
+  "reservations",
+  "userId",
+);
 ```
 
 この Query は、
@@ -253,7 +317,44 @@ reservations.userId
 
 で Record を関連付けます。
 
-JOIN 結果は JOIN 先 Table 名をプロパティとして持ちます。
+`Query` は JOIN の関係だけを定義します。
+
+JOIN 後の Record をどのような形にするかは `@gasboost/query` では決定しません。
+
+---
+
+# JoinResolver
+
+JOIN の出力形式は `QueryEvaluation` に渡す `JoinResolver` が決定します。
+
+JoinResolver には次の情報が渡されます。
+
+```ts
+{
+  parent,
+  table,
+  children,
+}
+```
+
+例えば JOIN 先 Table 名をそのまま property として利用する場合:
+
+```ts
+const joinResolver = ({
+  parent,
+  table,
+  children,
+}: {
+  parent: Record<string, unknown>;
+  table: string;
+  children: Record<string, unknown>[];
+}) => ({
+  ...parent,
+  [table]: children,
+});
+```
+
+結果:
 
 ```ts
 {
@@ -263,13 +364,53 @@ JOIN 結果は JOIN 先 Table 名をプロパティとして持ちます。
     {
       id: "reservation-1",
       userId: "user-1",
-      staffId: "staff-1"
-    }
-  ]
+    },
+  ],
 }
 ```
 
-`relations` などの特定の Record 表現には依存しません。
+一方、`relations` 配下へ格納することもできます。
+
+```ts
+const joinResolver = ({
+  parent,
+  table,
+  children,
+}: {
+  parent: Record<string, unknown>;
+  table: string;
+  children: Record<string, unknown>[];
+}) => ({
+  ...parent,
+  relations: {
+    ...(typeof parent.relations === "object" &&
+    parent.relations !== null &&
+    !Array.isArray(parent.relations)
+      ? parent.relations
+      : {}),
+    [table]: children,
+  },
+});
+```
+
+結果:
+
+```ts
+{
+  id: "user-1",
+  name: "Alice",
+  relations: {
+    reservations: [
+      {
+        id: "reservation-1",
+        userId: "user-1",
+      },
+    ],
+  },
+}
+```
+
+このため `@gasboost/query` は特定の JOIN Record 表現に依存しません。
 
 ---
 
@@ -278,13 +419,18 @@ JOIN 結果は JOIN 先 Table 名をプロパティとして持ちます。
 JOIN 先には別の Query を指定できます。
 
 ```ts
-const reservations = new Query<typeof tables, "reservations">({
-  tableName: "reservations",
-}).join("staffId", "staffs", "id");
+const staffs = new Query<typeof tables, "staffs">("staffs");
 
-const users = new Query<typeof tables, "users">({
-  tableName: "users",
-}).join("id", "reservations", "userId", reservations);
+const reservations = new Query<typeof tables, "reservations">(
+  "reservations",
+).join("staffId", "staffs", "id", staffs);
+
+const users = new Query<typeof tables, "users">("users").join(
+  "id",
+  "reservations",
+  "userId",
+  reservations,
+);
 ```
 
 Query 自身が JOIN の木構造を保持します。
@@ -295,27 +441,21 @@ users
    └─ staffs
 ```
 
-そのため、Table 側に Relation Tree を持たせなくても Query から必要な JOIN 構造を決定できます。
+Table Definition 側に Relation Tree を持たせる必要はありません。
 
 ---
 
 # Resolve
 
-`resolve()` に Loader を渡すことで、データ取得から Query 適用、再帰 JOIN までを一度に解決できます。
+データ取得から Query 適用、再帰 JOIN までを解決する場合は `QueryEvaluation.resolve()` を利用します。
 
 ```ts
-const result = await users.resolve(load);
+const evaluation = new QueryEvaluation(users, load, joinResolver);
+
+const result = await evaluation.resolve();
 ```
 
-Loader は Table 名を受け取り、その Table の Record を返します。
-
-```ts
-const load = async (table: string): Promise<Record<string, unknown>[]> => {
-  // 任意の storage から Record を取得
-};
-```
-
-Query は JOIN を再帰的に解決します。
+Nested JOIN は bottom-up に解決されます。
 
 ```text
 users
@@ -323,7 +463,7 @@ users
    └─ staffs
 ```
 
-の場合、概念的には bottom-up に処理されます。
+の場合、概念的には次の順番になります。
 
 ```text
 staffs
@@ -333,76 +473,163 @@ reservations
 users
 ```
 
-これにより、深い JOIN を持つ Query でも呼び出し側では、
+下位 JOIN に対する `JoinResolver` の結果が、そのまま上位 JOIN の child Record として利用されます。
+
+---
+
+# Example
 
 ```ts
-const result = await query.resolve(load);
-```
+import { Query, QueryEvaluation } from "@gasboost/query";
 
-だけで解決できます。
+const reservations = new Query<typeof tables, "reservations">(
+  "reservations",
+).and("staffId", "=", ["staff-1"]);
+
+const users = new Query<typeof tables, "users">("users")
+  .and("active", "=", [true])
+  .orderBy("name", "asc")
+  .join("id", "reservations", "userId", reservations);
+
+const evaluation = new QueryEvaluation(
+  users,
+  async (tableName) => {
+    return storage.read(tableName);
+  },
+  ({ parent, table, children }) => ({
+    ...parent,
+    relations: {
+      ...(typeof parent.relations === "object" &&
+      parent.relations !== null &&
+      !Array.isArray(parent.relations)
+        ? parent.relations
+        : {}),
+      [table]: children,
+    },
+  }),
+);
+
+const result = await evaluation.resolve();
+```
 
 ---
 
 # Storage Agnostic
 
-`@gasboost/query` は Record の取得元を知りません。
+`@gasboost/query` は Record の取得元も、JOIN 結果の保存形式も知りません。
 
-例えば SheetORM では Google Sheets から取得できます。
+ストレージ adapter 側が、
 
-```ts
-const result = await query.resolve(async (table) => {
-  return sheetStorage.read(table);
-});
+- Loader
+- JoinResolver
+
+を提供します。
+
+```text
+                 Query
+                   ↓
+           QueryEvaluation
+              ↙         ↘
+          Loader      JoinResolver
+             ↓             ↓
+       Data Source     Result Shape
 ```
 
-Replica では IndexedDB から取得できます。
+例えば SheetORM では、
 
-```ts
-const result = await query.resolve(async (table) => {
-  return replicaStorage.read(table);
-});
+```text
+Loader
+  → Google Sheets
+
+JoinResolver
+  → relations
 ```
 
-Query の意味とストレージ I/O を分離することで、同じ Query を複数のデータストアで共有できます。
+Replica では、
+
+```text
+Loader
+  → IndexedDB
+
+JoinResolver
+  → Replica が必要とする Record Shape
+```
+
+という構成にできます。
+
+同じ `Query` を複数のストレージ実装で共有できます。
 
 ---
 
 # Architecture
 
-`@gasboost/query` の責務は、Record に対する問い合わせ処理です。
+`@gasboost/query` の中心となる責務は明確に分離されています。
 
 ```text
 Query
-├─ Filter
-│  ├─ FilterOperator
-│  └─ FilterOperand
-├─ OrderBy
-├─ Join
-└─ resolve()
+  ├─ Filter Definition
+  ├─ Order Definition
+  ├─ Limit / Offset Definition
+  └─ Join Definition
+
+QueryEvaluation
+  ├─ Filter Evaluation
+  ├─ Sort
+  ├─ Offset
+  ├─ Limit
+  └─ Recursive Join Resolution
+
+Join
+  └─ Parent / Child Matching
+
+Loader
+  └─ Record Loading
+
+JoinResolver
+  └─ Joined Record Representation
 ```
 
-ストレージ固有の責務は外部に残します。
+`Query` はストレージや Record の出力形式を知りません。
+
+`QueryEvaluation` は Query を評価しますが、データの取得方法や JOIN 結果の表現方法は外部から受け取ります。
 
 ```text
 @gasboost/query
-  - Filter
-  - Sort
-  - Offset
-  - Limit
-  - Join
-  - Recursive resolution
+  - Query DSL
+  - Query Evaluation
+  - Join Matching
+  - Recursive Resolution
 
 @gasboost/sheetorm
   - Google Sheets I/O
+  - SheetORM JOIN Representation
 
 @gasboost/replica
   - IndexedDB I/O
+  - Replica JOIN Representation
 ```
 
-この分離により、Query の評価ロジックを各ストレージ実装で重複させずに利用できます。
+この分離により、問い合わせ定義、評価ロジック、ストレージ I/O、JOIN 表現を独立して扱えます。
+
+---
+
+# Public API
+
+`@gasboost/query` の公開 API は次の通りです。
+
+```ts
+import { Query, QueryEvaluation } from "@gasboost/query";
+
+import type { TableDefinition } from "@gasboost/query";
+```
+
+Filter、Join、OrderBy などは Query Engine の内部実装です。
+
+通常の利用者は `Query` と `QueryEvaluation` を通して利用します。
 
 ---
 
 # License
 
 MIT
+````

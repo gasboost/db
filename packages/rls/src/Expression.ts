@@ -1,6 +1,12 @@
-// packages/rls/src/Expression.ts
-import type { TableDefinition } from "@gasboost/query";
 import type { z } from "zod";
+
+export type TableDefinition<
+  N extends string = string,
+  S extends z.ZodObject<any> = z.ZodObject<any>,
+> = {
+  readonly name: N;
+  readonly schema: S;
+};
 
 export type ValueExpression<T> =
   | ColumnExpression<T>

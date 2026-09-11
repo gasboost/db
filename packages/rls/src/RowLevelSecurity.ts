@@ -1,5 +1,4 @@
-import type { TableDefinition } from "@gasboost/query";
-import type { PredicateExpression } from "./Expression";
+import type { PredicateExpression, TableDefinition } from "./Expression";
 
 export type SelectPolicy = {
   readonly using: PredicateExpression;

@@ -1,6 +1,16 @@
 import type { Query } from "./Query";
 import type { TableDefinition } from "./TableDefinition";
 
+export type JoinResolver = ({
+  parent,
+  table,
+  children,
+}: {
+  parent: Record<string, unknown>;
+  table: string;
+  children: Record<string, unknown>[];
+}) => Record<string, unknown>;
+
 export class Join<
   T extends readonly TableDefinition[],
   N extends T[number]["name"] = T[number]["name"],
@@ -30,6 +40,7 @@ export class Join<
   public combine(
     parents: Record<string, unknown>[],
     children: Record<string, unknown>[],
+    resolve: JoinResolver,
   ): Record<string, unknown>[] {
     const childrenByKey = new Map<unknown, Record<string, unknown>[]>();
 
@@ -51,10 +62,11 @@ export class Join<
       const matchedChildren =
         key === null || key === undefined ? [] : (childrenByKey.get(key) ?? []);
 
-      return {
-        ...parent,
-        [this.table]: matchedChildren,
-      };
+      return resolve({
+        parent,
+        table: this.table,
+        children: matchedChildren,
+      });
     });
   }
 }

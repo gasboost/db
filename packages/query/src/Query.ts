@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { Filter, Operand } from "./Filter";
-import { Join } from "./Join";
+import { Join, JoinResolver } from "./Join";
 import { OrderBy } from "./OrderBy";
 import type { TableByName, TableDefinition } from "./TableDefinition";
 
@@ -171,16 +171,19 @@ export class Query<
     return this.cut(shifted);
   }
 
-  public async resolve(load: Loader<T>): Promise<Record<string, unknown>[]> {
+  public async resolve(
+    load: Loader<T>,
+    joinResolver: JoinResolver,
+  ): Promise<Record<string, unknown>[]> {
     let records = this.apply(await load(this.tableName));
 
     for (const join of this.joins) {
       const children =
         join.query !== null
-          ? await join.query.resolve(load)
+          ? await join.query.resolve(load, joinResolver)
           : await load(join.table);
 
-      records = join.combine(records, children);
+      records = join.combine(records, children, joinResolver);
     }
 
     return records;

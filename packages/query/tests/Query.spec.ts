@@ -173,7 +173,7 @@ describe("Query", () => {
       return [];
     });
 
-    await expect(query.resolve(load)).resolves.toEqual([
+    await expect(query.resolve(load, vi.fn())).resolves.toEqual([
       { id: "1", name: "A", age: 10, active: true },
     ]);
 
@@ -206,25 +206,31 @@ describe("Query", () => {
       }
     });
 
-    await expect(query.resolve(load)).resolves.toEqual([
+    const joinResolver = vi.fn(({ parent, table, children }) => ({
+      parent,
+      table,
+      children,
+    }));
+
+    const result = await query.resolve(load, joinResolver);
+
+    expect(result).toEqual([
       {
-        id: "u1",
-        name: "A",
-        age: 20,
-        active: true,
-        reservations: [
+        parent: { id: "u1", name: "A", age: 20, active: true },
+        table: "reservations",
+        children: [
           { id: "r1", userId: "u1", staffId: "s1" },
           { id: "r2", userId: "u1", staffId: "s2" },
         ],
       },
       {
-        id: "u2",
-        name: "B",
-        age: 30,
-        active: true,
-        reservations: [{ id: "r3", userId: "u2", staffId: "s1" }],
+        parent: { id: "u2", name: "B", age: 30, active: true },
+        table: "reservations",
+        children: [{ id: "r3", userId: "u2", staffId: "s1" }],
       },
     ]);
+
+    expect(joinResolver).toHaveBeenCalledTimes(2);
   });
 
   it("子Queryを適用してからJOINする", async () => {
@@ -250,16 +256,22 @@ describe("Query", () => {
 
       return [];
     });
+    const joinResolver = vi.fn(({ parent, table, children }) => ({
+      parent,
+      table,
+      children,
+    }));
 
-    await expect(query.resolve(load)).resolves.toEqual([
+    const result = await query.resolve(load, joinResolver);
+
+    expect(result).toEqual([
       {
-        id: "u1",
-        name: "A",
-        age: 20,
-        active: true,
-        reservations: [{ id: "r1", userId: "u1", staffId: "s1" }],
+        parent: { id: "u1", name: "A", age: 20, active: true },
+        table: "reservations",
+        children: [{ id: "r1", userId: "u1", staffId: "s1" }],
       },
     ]);
+    expect(joinResolver).toHaveBeenCalledTimes(1);
   });
 
   it("JOINを再帰的にbottom-upでresolveする", async () => {
@@ -309,27 +321,63 @@ describe("Query", () => {
       }
     });
 
-    await expect(users.resolve(load)).resolves.toEqual([
-      {
+    const joinedReservation = {
+      id: "r1",
+      userId: "u1",
+      staffId: "s1",
+      resolved: "staffs",
+    };
+
+    const joinedUser = {
+      id: "u1",
+      name: "Taro",
+      age: 20,
+      active: true,
+      resolved: "reservations",
+    };
+
+    const joinResolver = vi
+      .fn()
+      .mockImplementationOnce(({ parent }) => ({
+        ...parent,
+        resolved: "staffs",
+      }))
+      .mockImplementationOnce(({ parent }) => ({
+        ...parent,
+        resolved: "reservations",
+      }));
+
+    const result = await users.resolve(load, joinResolver);
+
+    expect(result).toEqual([joinedUser]);
+
+    expect(joinResolver).toHaveBeenCalledTimes(2);
+
+    expect(joinResolver).toHaveBeenNthCalledWith(1, {
+      parent: {
+        id: "r1",
+        userId: "u1",
+        staffId: "s1",
+      },
+      table: "staffs",
+      children: [
+        {
+          id: "s1",
+          name: "Hanako",
+        },
+      ],
+    });
+
+    expect(joinResolver).toHaveBeenNthCalledWith(2, {
+      parent: {
         id: "u1",
         name: "Taro",
         age: 20,
         active: true,
-        reservations: [
-          {
-            id: "r1",
-            userId: "u1",
-            staffId: "s1",
-            staffs: [
-              {
-                id: "s1",
-                name: "Hanako",
-              },
-            ],
-          },
-        ],
       },
-    ]);
+      table: "reservations",
+      children: [joinedReservation],
+    });
 
     expect(load).toHaveBeenCalledWith("users");
     expect(load).toHaveBeenCalledWith("reservations");

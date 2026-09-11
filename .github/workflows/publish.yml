@@ -21,6 +21,7 @@ jobs:
       publish-sheetorm: ${{ steps.versions.outputs.publish-sheetorm }}
       publish-query: ${{ steps.versions.outputs.publish-query }}
       publish-replica: ${{ steps.versions.outputs.publish-replica }}
+      publish-rls: ${{ steps.versions.outputs.publish-rls }}
 
     steps:
       - name: Checkout
@@ -58,10 +59,11 @@ jobs:
           check_package publish-query packages/query/package.json
           check_package publish-replica packages/replica/package.json
           check_package publish-sheetorm packages/sheetorm/package.json
+          check_package publish-rls packages/rls/package.json
 
   publish:
     needs: check-versions
-    if: ${{ needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' }}
+    if: ${{ needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-rls == 'true' }}
     runs-on: ubuntu-latest
 
     permissions:
@@ -90,6 +92,28 @@ jobs:
       # query は replica の workspace dependency。
       # 将来 sheetorm も query に依存する予定なので、
       # いずれかを publish する場合は先に query の dist を生成する。
+      - name: Typecheck rls
+        if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
+        run: pnpm --filter @gasboost/rls typecheck
+
+      - name: Test rls
+        if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
+        run: pnpm --filter @gasboost/rls test
+
+      - name: Build rls
+        if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
+        run: pnpm --filter @gasboost/rls build
+
+      - name: Verify rls package contents
+        if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
+        working-directory: packages/rls
+        run: pnpm pack
+
+      - name: Publish rls
+        if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
+        working-directory: packages/rls
+        run: pnpm publish --access public --no-git-checks
+
       - name: Typecheck query
         if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
         run: pnpm --filter @gasboost/query typecheck

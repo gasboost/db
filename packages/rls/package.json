@@ -1,0 +1,48 @@
+{
+  "name": "@gasboost/rls",
+  "version": "0.1.0",
+  "description": "Type-safe, storage-agnostic Row Level Security authorization AST powered by Zod",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gasboost/db.git",
+    "directory": "packages/rls"
+  },
+  "license": "MIT",
+  "author": "tiger-oshima",
+  "keywords": [
+    "rls",
+    "row-level-security",
+    "authorization",
+    "access-control",
+    "database",
+    "zod",
+    "typescript",
+    "type-safe"
+  ],
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "zod": "^4.5.4"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "pack": "pnpm pack"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

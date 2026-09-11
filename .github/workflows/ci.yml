@@ -41,6 +41,18 @@ jobs:
       - name: Pack query
         run: pnpm --filter @gasboost/query pack:check
 
+      - name: Typecheck rls
+        run: pnpm --filter @gasboost/rls typecheck
+
+      - name: Test rls
+        run: pnpm --filter @gasboost/rls test
+
+      - name: Build rls
+        run: pnpm --filter @gasboost/rls build
+
+      - name: Pack rls
+        run: pnpm --filter @gasboost/rls pack
+
       - name: Typecheck replica
         run: pnpm --filter @gasboost/replica typecheck
 

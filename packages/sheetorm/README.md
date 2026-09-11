@@ -86,6 +86,8 @@ import { SheetDB, SheetGateway, SheetTable } from "@gasboost/sheetorm";
 - Migration
 - Seed
 - Sheet Protection
+- Row Level Security
+- Principal-based Authorization
 
 ---
 
@@ -93,12 +95,18 @@ import { SheetDB, SheetGateway, SheetTable } from "@gasboost/sheetorm";
 
 ```bash
 pnpm add @gasboost/sheetorm zod
+
+# Row Level Securityを利用する場合
+pnpm add @gasboost/rls
 ```
 
 npm の場合:
 
 ```bash
 npm install @gasboost/sheetorm zod
+
+# Row Level Securityを利用する場合
+pnpm add @gasboost/rls
 ```
 
 ## Requirements
@@ -501,6 +509,258 @@ db.table("users").delete([1, 2, 3]);
 ```
 
 Relation が設定されている場合は、Relation の `onDelete` 設定に従って関連 Record も処理されます。
+
+---
+
+# Row Level Security
+
+SheetORM は `@gasboost/rls` を利用した Row Level Security をサポートします。
+
+Row Level Security を使用すると、現在操作している Principal に応じて Record 単位で `select / insert / update / delete` を制御できます。
+
+```bash
+pnpm add @gasboost/rls
+```
+
+## Define Principal
+
+Principal は現在操作を要求している主体を表します。
+
+```ts
+import { z } from "zod";
+
+const principalSchema = z.object({
+  userId: z.string(),
+});
+```
+
+Authentication の実装には依存しません。
+
+アプリケーション側で認証済みユーザーなどから Principal を生成します。
+
+```ts
+const currentPrincipal = {
+  userId: "user-1",
+};
+```
+
+## Define Policy
+
+例えば、自分が所有する Record だけ操作できる Policy は次のように定義できます。
+
+```ts
+import { column, eq, principal, RowLevelSecurity } from "@gasboost/rls";
+
+const dealSecurity = new RowLevelSecurity({
+  table: dealTable,
+
+  select: {
+    using: eq(
+      column(dealTable, "ownerId"),
+      principal(principalSchema, "userId"),
+    ),
+  },
+
+  insert: {
+    check: eq(
+      column(dealTable, "ownerId"),
+      principal(principalSchema, "userId"),
+    ),
+  },
+
+  update: {
+    using: eq(
+      column(dealTable, "ownerId"),
+      principal(principalSchema, "userId"),
+    ),
+    check: eq(
+      column(dealTable, "ownerId"),
+      principal(principalSchema, "userId"),
+    ),
+  },
+
+  delete: {
+    using: eq(
+      column(dealTable, "ownerId"),
+      principal(principalSchema, "userId"),
+    ),
+  },
+});
+```
+
+各 Policy の意味は以下です。
+
+| Policy         | 評価対象                  |
+| -------------- | ------------------------- |
+| `select.using` | 読み込み対象の既存 Record |
+| `insert.check` | 新しく作成される Record   |
+| `update.using` | 更新前の既存 Record       |
+| `update.check` | 更新後の Record           |
+| `delete.using` | 削除対象の既存 Record     |
+
+## Configure SheetDB
+
+Principal と Row Level Security を `SheetDB` に渡します。
+
+```ts
+const db = new SheetDB({
+  tables: [dealTable] as const,
+  gateway: new SheetGateway(SpreadsheetApp),
+  cacheService: CacheService,
+  utilities: Utilities,
+
+  principal: {
+    userId: "user-1",
+  },
+
+  rowLevelSecurity: [dealSecurity],
+});
+```
+
+以降は通常どおり `SheetDB` を操作します。
+
+```ts
+const deals = db.table("deals").find();
+```
+
+RLS の条件を満たさない Record は返されません。
+
+## Default Policy
+
+RLS の設定状態によって動作が異なります。
+
+```text
+RLS未設定
+→ unrestricted
+
+RLS設定あり + operationのPolicyなし
+→ deny
+
+RLS設定あり + allow()
+→ explicitly allow
+```
+
+つまり、RLS を設定していない既存 Table の動作は変わりません。
+
+一方、RLS を有効にした Table では Policy が明示されていない操作は許可されません。
+
+認可条件を必要としない操作は `allow()` で明示できます。
+
+```ts
+import { allow, RowLevelSecurity } from "@gasboost/rls";
+
+const security = new RowLevelSecurity({
+  table: masterTable,
+
+  select: {
+    using: allow(),
+  },
+});
+```
+
+## Query Evaluation Order
+
+Query と RLS を同時に使用する場合、SheetORM は **RLS を先に評価します**。
+
+```text
+load
+↓
+RLS
+↓
+authorized records
+↓
+Query
+↓
+result
+```
+
+例えば100件のRecordのうち20件だけアクセス可能な場合、
+
+```ts
+const query = db.query("deals").orderBy("createdAt", "desc").limit(10);
+
+const deals = db.find(query);
+```
+
+は次の順序で処理されます。
+
+```text
+100 Records
+↓ RLS
+20 authorized Records
+↓ orderBy
+20 Records
+↓ limit
+10 Records
+```
+
+`limit` や `offset` が RLS より先に適用されることはありません。
+
+これにより、認可されていない Record が Query のページングや件数制限に影響することを防ぎます。
+
+## Write Authorization
+
+RLS は Read だけでなく Write にも適用されます。
+
+```text
+create
+→ insert.check
+
+update
+→ update.using
+→ update.check
+
+delete
+→ delete.using
+
+upsert
+→ existing Record: update policy
+→ new Record: insert policy
+```
+
+RLS によって拒否された Record は Storage に書き込まれません。
+
+## Relation Writes
+
+Relation によって発生する派生 Write にも RLS が適用されます。
+
+```text
+Nested Create
+→ child insert.check
+
+Cascade Delete
+→ child delete.using
+
+Set Null
+→ child update.using
+→ child update.check
+```
+
+例えば Parent の削除自体が許可されていても、Cascade 対象 Child の `delete.using` が拒否した場合は削除されません。
+
+同様に `set null` による Foreign Key 更新も Child Table の Update Policy を通過する必要があります。
+
+Nested Create では Parent / Child を含む Write 対象全体の Validation と Authorization が成功した後に Write が実行されます。
+
+そのため Child Record の `insert.check` が拒否された場合に Parent Record だけが作成されることはありません。
+
+## Transaction
+
+Transaction 内でも RLS は適用されます。
+
+```ts
+db.transaction(() => {
+  db.table("deals").update([
+    {
+      id: 1,
+      ownerId: "user-1",
+      name: "Updated",
+    },
+  ]);
+});
+```
+
+Transaction を利用しても RLS を迂回することはできません。
 
 ---
 

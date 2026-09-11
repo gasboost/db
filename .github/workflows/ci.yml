@@ -77,9 +77,11 @@ jobs:
       - name: Pack and smoke test sheetorm
         run: |
           pnpm --filter @gasboost/query pack
+          pnpm --filter @gasboost/rls pack
           pnpm --filter @gasboost/sheetorm pack
 
           QUERY_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-query-*.tgz' -print -quit)"
+          RLS_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-rls-*.tgz' -print -quit)"
           SHEETORM_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-sheetorm-*.tgz' -print -quit)"
 
           rm -rf /tmp/sheetorm-consumer
@@ -91,12 +93,18 @@ jobs:
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
             pkg.pnpm = {
               overrides: {
-                '@gasboost/query': 'file:${QUERY_PACKAGE_FILE}'
+                '@gasboost/query': 'file:${QUERY_PACKAGE_FILE}',
+                '@gasboost/rls': 'file:${RLS_PACKAGE_FILE}'
               }
             };
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+
+            fs.writeFileSync(
+              'package.json',
+              JSON.stringify(pkg, null, 2) + '\n'
+            );
           "
 
           pnpm add "$SHEETORM_PACKAGE_FILE"

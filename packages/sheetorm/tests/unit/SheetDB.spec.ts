@@ -8,6 +8,14 @@ import { SheetTable } from "../../src/core/SheetTable";
 import { InMemoryGateway } from "../../src/gateway/InMemoryGateway";
 import { InMemoryDataStore } from "../../src/storage/InMemoryDataStore";
 
+function createAuthorization() {
+  return {
+    ensureInsert: vi.fn(),
+    ensureUpdate: vi.fn(),
+    ensureDelete: vi.fn(),
+  };
+}
+
 describe("SheetDB", () => {
   it("skips deleteCascade when no relations", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
@@ -196,6 +204,7 @@ describe("SheetDB", () => {
         new InMemoryGateway(store),
         new InMemoryCacheService(),
         new NodeUtilities(),
+        createAuthorization(),
         [1],
       ),
     );

@@ -88,9 +88,18 @@ jobs:
 
           pnpm init
 
-          pnpm add "$QUERY_PACKAGE_FILE"
-          pnpm add "$SHEETORM_PACKAGE_FILE"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.pnpm = {
+              overrides: {
+                '@gasboost/query': 'file:${QUERY_PACKAGE_FILE}'
+              }
+            };
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
 
+          pnpm add "$SHEETORM_PACKAGE_FILE"
           pnpm add -D typescript @types/google-apps-script
 
           cat > index.ts <<'EOF'

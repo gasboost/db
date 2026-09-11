@@ -60,7 +60,7 @@ export type SheetDBConfig<T extends readonly SheetTable<string, any>[]> = {
   cacheService: GoogleAppsScript.Cache.CacheService;
   utilities: GoogleAppsScript.Utilities.Utilities;
   principal?: Record<string, unknown>;
-  rowLevelSecurity?: readonly RowLevelSecurity<any>[];
+  rowLevelSecurity?: readonly RowLevelSecurity<T[number]>[];
 };
 
 export class SheetDB<
@@ -77,7 +77,7 @@ export class SheetDB<
   private readonly authorization: WriteAuthorization;
 
   public readonly principal: Record<string, unknown>;
-  public readonly rowLevelSecurity: readonly RowLevelSecurity<any>[];
+  public readonly rowLevelSecurity: readonly RowLevelSecurity<T[number]>[];
   public readonly rls: RowLevelSecurityEvaluator;
 
   constructor(config: SheetDBConfig<T>) {

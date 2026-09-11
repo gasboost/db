@@ -1,22 +1,28 @@
 import type { JoinResolver } from "./Join";
-import type { Loader, Query } from "./Query";
+import type { Query } from "./Query";
 import type { TableDefinition } from "./TableDefinition";
+
+export type Loader<T extends readonly TableDefinition[]> = <
+  N extends T[number]["name"],
+>(
+  table: N,
+) => Record<string, unknown>[];
+
+export type AsyncLoader<T extends readonly TableDefinition[]> = <
+  N extends T[number]["name"],
+>(
+  table: N,
+) => Promise<Record<string, unknown>[]>;
 
 export class QueryEvaluation<
   T extends readonly TableDefinition[],
   N extends T[number]["name"] = T[number]["name"],
 > {
   public readonly query: Query<T, N>;
-  public readonly load: Loader<T>;
   public readonly joinResolver: JoinResolver;
 
-  public constructor(
-    query: Query<T, N>,
-    load: Loader<T>,
-    joinResolver: JoinResolver,
-  ) {
+  public constructor(query: Query<T, N>, joinResolver: JoinResolver) {
     this.query = query;
-    this.load = load;
     this.joinResolver = joinResolver;
   }
 
@@ -66,18 +72,34 @@ export class QueryEvaluation<
     return this.cut(shifted);
   }
 
-  public async resolve(): Promise<Record<string, unknown>[]> {
-    let records = this.apply(await this.load(this.query.tableName));
+  public resolve(load: Loader<T>): Record<string, unknown>[] {
+    let records = this.apply(load(this.query.tableName));
+
+    for (const join of this.query.joins) {
+      const children =
+        join.query !== null
+          ? new QueryEvaluation(join.query, this.joinResolver).resolve(load)
+          : load(join.table);
+
+      records = join.combine(records, children, this.joinResolver);
+    }
+
+    return records;
+  }
+
+  public async resolveAsync(
+    load: AsyncLoader<T>,
+  ): Promise<Record<string, unknown>[]> {
+    let records = this.apply(await load(this.query.tableName));
 
     for (const join of this.query.joins) {
       const children =
         join.query !== null
           ? await new QueryEvaluation(
               join.query,
-              this.load,
               this.joinResolver,
-            ).resolve()
-          : await this.load(join.table);
+            ).resolveAsync(load)
+          : await load(join.table);
 
       records = join.combine(records, children, this.joinResolver);
     }

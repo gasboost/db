@@ -141,7 +141,7 @@ describe("SheetDB", () => {
     expect(() => db.delete([1])).not.toThrow();
   });
 
-  it("commits delete diff during transaction", async () => {
+  it("commits delete diff during transaction", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
     const table = new SheetTable({
       dbId: "db",
@@ -166,11 +166,11 @@ describe("SheetDB", () => {
     });
 
     db.table("users");
-    const records = await db.find();
+    const records = db.find();
     expect(records.length).toBe(1);
   });
 
-  it("commits delete diff when called directly", async () => {
+  it("commits delete diff when called directly", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
     const table = new SheetTable({
       dbId: "db",
@@ -202,7 +202,7 @@ describe("SheetDB", () => {
     expect(() => db.commit(table)).not.toThrow();
 
     db.table("users");
-    const records = await db.find();
+    const records = db.find();
     expect(records.map((row) => row[table.primaryKey])).toEqual([2]);
   });
 
@@ -977,7 +977,7 @@ describe("SheetDB", () => {
     expect(store.get("db:others").rows).toEqual([]);
   });
 
-  it("queryを@gasboost/queryで解決する", async () => {
+  it("queryを@gasboost/queryで解決する", () => {
     const userSchema = z.object({
       id: z.number().meta({ primary: true }),
       name: z.string(),
@@ -1011,7 +1011,7 @@ describe("SheetDB", () => {
 
     const query = db.query("users").and("name", "=", ["Alice"]);
 
-    const records = await db.find(query);
+    const records = db.find(query);
 
     expect(records).toEqual([
       {
@@ -1021,7 +1021,7 @@ describe("SheetDB", () => {
     ]);
   });
 
-  it("joinを@gasboost/queryで解決する", async () => {
+  it("joinを@gasboost/queryで解決する", () => {
     const userSchema = z.object({
       id: z.number().meta({ primary: true }),
       name: z.string(),
@@ -1078,7 +1078,7 @@ describe("SheetDB", () => {
 
     const query = db.query("users").join("id", "posts", "userId");
 
-    const records = await db.find(query);
+    const records = db.find(query);
 
     expect(records).toEqual([
       {

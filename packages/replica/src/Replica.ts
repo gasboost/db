@@ -56,14 +56,15 @@ export class Replica<T extends readonly ReplicaTableDefinition[]> {
   ): Promise<Record<string, unknown>[]> {
     const evaluation = new QueryEvaluation(
       query,
-      async (name) =>
-        this.db.table(name).toArray() as Promise<Record<string, unknown>[]>,
       ({ parent, table, children }) => ({
         ...parent,
         [table]: children,
       }),
     );
 
-    return evaluation.resolve();
+    return evaluation.resolveAsync(
+      async (name) =>
+        this.db.table(name).toArray() as Promise<Record<string, unknown>[]>,
+    );
   }
 }

@@ -340,17 +340,17 @@ export class SheetDB<
     return new Query<T, U>(tableName);
   }
 
-  public async find(): Promise<RecordWithRelations<CurrentRecord<T, N>>[]>;
+  public find(): RecordWithRelations<CurrentRecord<T, N>>[];
 
-  public async find<U extends T[number]["name"]>(
+  public find<U extends T[number]["name"]>(
     query: Query<T, U>,
-  ): Promise<RecordWithRelations<CurrentRecord<T, U>>[]>;
+  ): RecordWithRelations<CurrentRecord<T, U>>[];
 
-  public async find(
+  public find(
     query?: Query<T, any>,
-  ): Promise<RecordWithRelations<CurrentRecord<T, N>>[]>;
+  ): RecordWithRelations<CurrentRecord<T, N>>[];
 
-  public async find(query?: Query<T, any>): Promise<any> {
+  public find(query?: Query<T, any>): any {
     if (!query) {
       this.gateway.table(this._table.name, this._table.dbId);
 
@@ -359,17 +359,6 @@ export class SheetDB<
 
     const evaluation = new QueryEvaluation(
       query,
-      async (tableName) => {
-        const table = this.tables.find((table) => table.name === tableName);
-
-        if (!table) {
-          throw new Error(`Table '${tableName}' not found.`);
-        }
-
-        this.gateway.table(table.name, table.dbId);
-
-        return this.gateway.read();
-      },
       ({ parent, table, children }) => {
         const relations =
           typeof parent.relations === "object" &&
@@ -388,7 +377,17 @@ export class SheetDB<
       },
     );
 
-    return evaluation.resolve();
+    return evaluation.resolve((tableName) => {
+      const table = this.tables.find((table) => table.name === tableName);
+
+      if (!table) {
+        throw new Error(`Table '${tableName}' not found.`);
+      }
+
+      this.gateway.table(table.name, table.dbId);
+
+      return this.gateway.read();
+    });
   }
 
   transaction<R>(fn: () => R): R {

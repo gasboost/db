@@ -1,4 +1,3 @@
-````markdown
 # @gasboost/query
 
 Zod Schema を利用した、型安全でストレージ非依存の Query Engine です。
@@ -226,7 +225,7 @@ const query = new Query<typeof tables, "users">("users").and("active", "=", [
   true,
 ]);
 
-const evaluation = new QueryEvaluation(query, load, joinResolver);
+const evaluation = new QueryEvaluation(query, joinResolver);
 ```
 
 責務は次のように分離されています。
@@ -239,6 +238,10 @@ QueryEvaluation
   = 問い合わせの評価・解決
 ```
 
+`QueryEvaluation` 自身はストレージが同期か非同期かを決定しません。
+
+同期ストレージでは `resolve(loader)`、非同期ストレージでは `resolveAsync(asyncLoader)` を利用します。
+
 ---
 
 # Apply
@@ -250,7 +253,7 @@ const query = new Query<typeof tables, "users">("users").and("active", "=", [
   true,
 ]);
 
-const evaluation = new QueryEvaluation(query, load, joinResolver);
+const evaluation = new QueryEvaluation(query, joinResolver);
 
 const result = evaluation.apply(records);
 ```
@@ -273,53 +276,59 @@ Limit
 
 # Loader
 
-`QueryEvaluation` は Record の取得方法を知りません。
-
-代わりに、Table 名を受け取って Record を返す Loader を渡します。
+同期ストレージから Record を取得する場合は、`resolve()` に Loader を渡します。
 
 ```ts
-const load = async (tableName: string): Promise<Record<string, unknown>[]> => {
-  // 任意の storage から Record を取得
+const load = (tableName: string): Record<string, unknown>[] => {
+  // 任意の synchronous storage から Record を取得
 };
 ```
 
-例えば Google Sheets、IndexedDB、In-Memory Store など、任意のストレージへ接続できます。
+```ts
+const result = evaluation.resolve(load);
+```
+
+例えば Google Sheets のように同期的に Record を取得できるストレージで利用できます。
 
 ```text
 QueryEvaluation
       ↓
+   resolve()
+      ↓
     Loader
-   ↙     ↘
-Sheets   IndexedDB
+      ↓
+Synchronous Storage
 ```
 
 ---
 
-# JOIN
+# Async Loader
 
-異なる Table の Record を型安全に JOIN できます。
+非同期ストレージから Record を取得する場合は、`resolveAsync()` に Async Loader を渡します。
 
 ```ts
-const query = new Query<typeof tables, "users">("users").join(
-  "id",
-  "reservations",
-  "userId",
-);
+const asyncLoad = async (
+  tableName: string,
+): Promise<Record<string, unknown>[]> => {
+  // 任意の asynchronous storage から Record を取得
+};
 ```
 
-この Query は、
+```ts
+const result = await evaluation.resolveAsync(asyncLoad);
+```
+
+例えば IndexedDB / Dexie などの非同期ストレージで利用できます。
 
 ```text
-users.id
-    ↓
-reservations.userId
+QueryEvaluation
+      ↓
+ resolveAsync()
+      ↓
+ Async Loader
+      ↓
+Asynchronous Storage
 ```
-
-で Record を関連付けます。
-
-`Query` は JOIN の関係だけを定義します。
-
-JOIN 後の Record をどのような形にするかは `@gasboost/query` では決定しません。
 
 ---
 
@@ -352,6 +361,10 @@ const joinResolver = ({
   ...parent,
   [table]: children,
 });
+```
+
+```ts
+const evaluation = new QueryEvaluation(query, joinResolver);
 ```
 
 結果:
@@ -393,67 +406,21 @@ const joinResolver = ({
 });
 ```
 
-結果:
-
-```ts
-{
-  id: "user-1",
-  name: "Alice",
-  relations: {
-    reservations: [
-      {
-        id: "reservation-1",
-        userId: "user-1",
-      },
-    ],
-  },
-}
-```
-
 このため `@gasboost/query` は特定の JOIN Record 表現に依存しません。
-
----
-
-# Nested JOIN
-
-JOIN 先には別の Query を指定できます。
-
-```ts
-const staffs = new Query<typeof tables, "staffs">("staffs");
-
-const reservations = new Query<typeof tables, "reservations">(
-  "reservations",
-).join("staffId", "staffs", "id", staffs);
-
-const users = new Query<typeof tables, "users">("users").join(
-  "id",
-  "reservations",
-  "userId",
-  reservations,
-);
-```
-
-Query 自身が JOIN の木構造を保持します。
-
-```text
-users
-└─ reservations
-   └─ staffs
-```
-
-Table Definition 側に Relation Tree を持たせる必要はありません。
 
 ---
 
 # Resolve
 
-データ取得から Query 適用、再帰 JOIN までを解決する場合は `QueryEvaluation.resolve()` を利用します。
+同期ストレージでは `QueryEvaluation.resolve()` を利用します。
 
 ```ts
-const evaluation = new QueryEvaluation(users, load, joinResolver);
+const evaluation = new QueryEvaluation(users, joinResolver);
 
-const result = await evaluation.resolve();
+const result = evaluation.resolve(load);
 ```
+
+データ取得、Query 適用、再帰 JOIN を同期的に解決します。
 
 Nested JOIN は bottom-up に解決されます。
 
@@ -477,7 +444,35 @@ users
 
 ---
 
+# Resolve Async
+
+非同期ストレージでは `QueryEvaluation.resolveAsync()` を利用します。
+
+```ts
+const evaluation = new QueryEvaluation(users, joinResolver);
+
+const result = await evaluation.resolveAsync(asyncLoad);
+```
+
+`resolveAsync()` も `resolve()` と同じ Query semantics を利用します。
+
+違いは Record の取得方法だけです。
+
+```text
+resolve()
+  = synchronous Loader
+
+resolveAsync()
+  = asynchronous Loader
+```
+
+Filter / Sort / Offset / Limit / JOIN / Nested JOIN の意味は共通です。
+
+---
+
 # Example
+
+同期ストレージの場合:
 
 ```ts
 import { Query, QueryEvaluation } from "@gasboost/query";
@@ -493,9 +488,6 @@ const users = new Query<typeof tables, "users">("users")
 
 const evaluation = new QueryEvaluation(
   users,
-  async (tableName) => {
-    return storage.read(tableName);
-  },
   ({ parent, table, children }) => ({
     ...parent,
     relations: {
@@ -509,7 +501,17 @@ const evaluation = new QueryEvaluation(
   }),
 );
 
-const result = await evaluation.resolve();
+const result = evaluation.resolve((tableName) => {
+  return storage.read(tableName);
+});
+```
+
+非同期ストレージの場合:
+
+```ts
+const result = await evaluation.resolveAsync(async (tableName) => {
+  return asyncStorage.read(tableName);
+});
 ```
 
 ---
@@ -518,9 +520,9 @@ const result = await evaluation.resolve();
 
 `@gasboost/query` は Record の取得元も、JOIN 結果の保存形式も知りません。
 
-ストレージ adapter 側が、
+storage adapter 側が、
 
-- Loader
+- Loader または Async Loader
 - JoinResolver
 
 を提供します。
@@ -529,16 +531,19 @@ const result = await evaluation.resolve();
                  Query
                    ↓
            QueryEvaluation
-              ↙         ↘
-          Loader      JoinResolver
-             ↓             ↓
-       Data Source     Result Shape
+          ↙               ↘
+     resolve()         resolveAsync()
+        ↓                   ↓
+      Loader           Async Loader
+          \               /
+           \             /
+            JoinResolver
 ```
 
 例えば SheetORM では、
 
 ```text
-Loader
+resolve()
   → Google Sheets
 
 JoinResolver
@@ -548,7 +553,7 @@ JoinResolver
 Replica では、
 
 ```text
-Loader
+resolveAsync()
   → IndexedDB
 
 JoinResolver
@@ -557,7 +562,7 @@ JoinResolver
 
 という構成にできます。
 
-同じ `Query` を複数のストレージ実装で共有できます。
+同じ `Query` と同じ Query semantics を、同期・非同期の異なるストレージ実装で共有できます。
 
 ---
 
@@ -577,13 +582,15 @@ QueryEvaluation
   ├─ Sort
   ├─ Offset
   ├─ Limit
+  ├─ resolve()
+  ├─ resolveAsync()
   └─ Recursive Join Resolution
 
-Join
-  └─ Parent / Child Matching
-
 Loader
-  └─ Record Loading
+  └─ Synchronous Record Loading
+
+Async Loader
+  └─ Asynchronous Record Loading
 
 JoinResolver
   └─ Joined Record Representation
@@ -591,21 +598,24 @@ JoinResolver
 
 `Query` はストレージや Record の出力形式を知りません。
 
-`QueryEvaluation` は Query を評価しますが、データの取得方法や JOIN 結果の表現方法は外部から受け取ります。
+`QueryEvaluation` は Query を評価しますが、Record の取得方法は `resolve()` / `resolveAsync()` の呼び出し時に受け取ります。
 
 ```text
 @gasboost/query
   - Query DSL
   - Query Evaluation
   - Join Matching
-  - Recursive Resolution
+  - Sync Resolution
+  - Async Resolution
 
 @gasboost/sheetorm
   - Google Sheets I/O
+  - Synchronous Loader
   - SheetORM JOIN Representation
 
 @gasboost/replica
   - IndexedDB I/O
+  - Asynchronous Loader
   - Replica JOIN Representation
 ```
 
@@ -632,4 +642,3 @@ Filter、Join、OrderBy などは Query Engine の内部実装です。
 # License
 
 MIT
-````

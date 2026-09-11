@@ -9,12 +9,6 @@ export type CriteriaValue<
   K extends keyof z.infer<S>,
 > = z.infer<S>[K];
 
-export type Loader<T extends readonly TableDefinition[]> = <
-  N extends T[number]["name"],
->(
-  table: N,
-) => Promise<Record<string, unknown>[]>;
-
 export class Query<
   T extends readonly TableDefinition[],
   N extends T[number]["name"] = T[number]["name"],

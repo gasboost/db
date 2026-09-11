@@ -5,6 +5,8 @@
     "zod": "^4.5.4"
   },
   "scripts": {
-    "test": "vitest run"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json"
   }
 }

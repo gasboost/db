@@ -15,6 +15,7 @@ export type ValueExpression<T> =
   | LiteralExpression<T>;
 
 export type PredicateExpression =
+  | AllowExpression
   | EqExpression
   | AndExpression
   | OrExpression
@@ -44,6 +45,10 @@ export type LiteralExpression<T> = {
   readonly type: "literal";
   readonly value: T;
   readonly __value?: T;
+};
+
+export type AllowExpression = {
+  readonly type: "allow";
 };
 
 export type EqExpression = {
@@ -116,6 +121,12 @@ export function literal<T>(value: T): ValueExpression<T> {
   return {
     type: "literal",
     value,
+  };
+}
+
+export function allow(): PredicateExpression {
+  return {
+    type: "allow",
   };
 }
 

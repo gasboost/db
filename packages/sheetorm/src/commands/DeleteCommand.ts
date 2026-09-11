@@ -2,18 +2,19 @@ import { Relationable } from "../core/Relationable";
 import { SheetRecords } from "../core/SheetRecords";
 import { SheetTable } from "../core/SheetTable";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
+import type { WriteAuthorization } from "./WriteCommand";
 import { WriteCommand } from "./WriteCommand";
-
 export class DeleteCommand extends WriteCommand {
   constructor(
     table: SheetTable<any, any>,
     gateway: AccessableDataStore,
     CacheService: GoogleAppsScript.Cache.CacheService,
     Utilities: GoogleAppsScript.Utilities.Utilities,
+    authorization: WriteAuthorization,
     private pkValues: any[],
     private transactionEnabled = false,
   ) {
-    super(gateway, table, CacheService, Utilities);
+    super(gateway, table, CacheService, Utilities, authorization);
   }
 
   execute(_exsist: SheetRecords): void {
@@ -134,22 +135,41 @@ export class DeleteCommand extends WriteCommand {
           }
 
           if (relation.onDelete === "cascade") {
+            this.authorization.ensureDelete(
+              childTable as SheetTable<any, any>,
+              relatedChildren,
+            );
             deleteRecords(childTable, relatedChildren, nextVisitedTargets);
             continue;
           }
 
           if (relation.onDelete === "set null") {
+            const nextRelatedChildren = relatedChildren.map((record) => ({
+              ...record,
+              [relation.childKey]: null,
+            }));
+
+            this.authorization.ensureUpdate(
+              childTable as SheetTable<any, any>,
+              relatedChildren,
+              nextRelatedChildren,
+            );
+
+            const nextByPrimaryKey = new Map(
+              nextRelatedChildren.map((record) => [
+                record[childTable.primaryKey as string],
+                record,
+              ]),
+            );
+
             currentRecords.set(
               childTableKey,
               childRecords.map((record) => {
-                if (!parentKeyValues.includes(record[relation.childKey])) {
-                  return record;
-                }
+                const next = nextByPrimaryKey.get(
+                  record[childTable.primaryKey as string],
+                );
 
-                return {
-                  ...record,
-                  [relation.childKey]: null,
-                };
+                return next ?? record;
               }),
             );
           }

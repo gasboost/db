@@ -2,6 +2,7 @@ import { z } from "zod";
 import { SheetRecords } from "../core/SheetRecords";
 import { SheetTable } from "../core/SheetTable";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
+import type { WriteAuthorization } from "./WriteCommand";
 import { WriteCommand } from "./WriteCommand";
 
 export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
@@ -11,8 +12,9 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
     CacheService: GoogleAppsScript.Cache.CacheService,
     Utilities: GoogleAppsScript.Utilities.Utilities,
     private records: z.output<Z>[],
+    authorization: WriteAuthorization,
   ) {
-    super(gateway, table, CacheService, Utilities);
+    super(gateway, table, CacheService, Utilities, authorization);
   }
 
   preview(exsist: SheetRecords): z.output<Z>[] {
@@ -67,13 +69,17 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
     return updatedRecords;
   }
 
-  execute(exsist: SheetRecords): z.output<Z>[] {
+  public execute(exsist: SheetRecords): z.output<Z>[] {
     this.gateway.table(this.table.name, this.table.dbId);
     this.table.lock(this.Cache, this.Utilities);
-    const updatedRecords = this.preview(exsist);
-    const previousRecords = exsist.getValues();
 
-    this.gateway.rewrite(exsist.getValues(), previousRecords);
+    const currentRecords = exsist.getValues();
+
+    const updatedRecords = this.preview(exsist);
+
+    this.authorization.ensureUpdate(this.table, currentRecords, updatedRecords);
+
+    this.gateway.rewrite(exsist.getValues(), currentRecords);
 
     return updatedRecords;
   }

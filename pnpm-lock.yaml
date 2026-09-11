@@ -48,6 +48,9 @@ importers:
       '@gasboost/query':
         specifier: workspace:*
         version: link:../query
+      '@gasboost/rls':
+        specifier: workspace:*
+        version: link:../rls
       zod:
         specifier: ^4.5.4
         version: 4.5.4

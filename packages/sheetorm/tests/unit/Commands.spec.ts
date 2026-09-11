@@ -10,6 +10,14 @@ import { SheetTable } from "../../src/core/SheetTable";
 import { InMemoryGateway } from "../../src/gateway/InMemoryGateway";
 import { InMemoryDataStore } from "../../src/storage/InMemoryDataStore";
 
+function createAuthorization() {
+  return {
+    ensureInsert: vi.fn(),
+    ensureUpdate: vi.fn(),
+    ensureDelete: vi.fn(),
+  };
+}
+
 describe("Command coverage", () => {
   it("CreateCommand falls back to lastId when cache is invalid", () => {
     const schema = z.object({
@@ -40,9 +48,14 @@ describe("Command coverage", () => {
     const utilities = new NodeUtilities();
     cacheService.getScriptCache().put("db:users:autoIncrement", "not-json");
 
-    const command = new CreateCommand(gateway, table, cacheService, utilities, [
-      { name: "b", id: 0 },
-    ]);
+    const command = new CreateCommand(
+      gateway,
+      table,
+      cacheService,
+      utilities,
+      [{ name: "b", id: 0 }],
+      createAuthorization(),
+    );
 
     const diff = command.getDiff();
     expect(diff[0].id).toBe(3);
@@ -86,10 +99,17 @@ describe("Command coverage", () => {
       JSON.stringify({ value: 10 }),
     );
 
-    const command = new CreateCommand(gateway, table, cacheService, utilities, [
-      { name: "b", id: 0 },
-      { name: "c", id: 0 },
-    ]);
+    const command = new CreateCommand(
+      gateway,
+      table,
+      cacheService,
+      utilities,
+      [
+        { name: "b", id: 0 },
+        { name: "c", id: 0 },
+      ],
+      createAuthorization(),
+    );
 
     const diff = command.getDiff();
     expect(diff.map((row) => row.id)).toEqual([11, 12]);
@@ -123,9 +143,14 @@ describe("Command coverage", () => {
     const cacheService = new InMemoryCacheService();
     const utilities = new NodeUtilities();
 
-    const command = new CreateCommand(gateway, table, cacheService, utilities, [
-      { name: "b", id: 0 },
-    ]);
+    const command = new CreateCommand(
+      gateway,
+      table,
+      cacheService,
+      utilities,
+      [{ name: "b", id: 0 }],
+      createAuthorization(),
+    );
 
     const diff = command.getDiff();
     expect(diff[0].id).toBe(6);
@@ -151,6 +176,7 @@ describe("Command coverage", () => {
       new InMemoryCacheService(),
       new NodeUtilities(),
       [{ id: 7, name: "b" }],
+      createAuthorization(),
     );
 
     const diff = command.getDiff();
@@ -187,6 +213,7 @@ describe("Command coverage", () => {
         { name: "b", id: "" },
         { name: "c", id: "" },
       ],
+      createAuthorization(),
     );
 
     const diff = command.getDiff();
@@ -248,6 +275,7 @@ describe("Command coverage", () => {
           id: "",
         },
       ],
+      createAuthorization(),
     );
 
     command.execute(exsist);
@@ -332,6 +360,7 @@ describe("Command coverage", () => {
           id: "",
         },
       ],
+      createAuthorization(),
     );
 
     const preview = command.getDiff();
@@ -372,9 +401,14 @@ describe("Command coverage", () => {
     const cacheService = new InMemoryCacheService();
     const utilities = new NodeUtilities();
 
-    const command = new CreateCommand(gateway, table, cacheService, utilities, [
-      { name: "first", id: 0 },
-    ]);
+    const command = new CreateCommand(
+      gateway,
+      table,
+      cacheService,
+      utilities,
+      [{ name: "first", id: 0 }],
+      createAuthorization(),
+    );
 
     const diff = command.getDiff();
     expect(diff[0].id).toBe(1);
@@ -412,6 +446,7 @@ describe("Command coverage", () => {
       new InMemoryCacheService(),
       new NodeUtilities(),
       [{ id: 2, email: "a@example.com" }],
+      createAuthorization(),
     );
 
     expect(() => command.execute(exsist)).toThrow(
@@ -446,6 +481,7 @@ describe("Command coverage", () => {
         { id: 1, email: "dup@example.com" },
         { id: 2, email: "dup@example.com" },
       ],
+      createAuthorization(),
     );
 
     expect(() => command.execute(exsist)).toThrow(
@@ -477,6 +513,7 @@ describe("Command coverage", () => {
       new InMemoryCacheService(),
       new NodeUtilities(),
       [{ id: 1 }, { id: 2 }],
+      createAuthorization(),
     );
 
     expect(() => command.execute(exsist)).not.toThrow();
@@ -509,6 +546,7 @@ describe("Command coverage", () => {
         { id: 3, email: "   " },
         { id: 4, email: "ok@example.com" },
       ],
+      createAuthorization(),
     );
 
     expect(() => command.execute(exsist)).not.toThrow();
@@ -548,6 +586,7 @@ describe("Command coverage", () => {
       new InMemoryCacheService(),
       new NodeUtilities(),
       [{ id: 1, email: "a@example.com" }],
+      createAuthorization(),
     );
 
     expect(() => command.execute(exsist)).not.toThrow();
@@ -586,6 +625,7 @@ describe("Command coverage", () => {
       new InMemoryCacheService(),
       new NodeUtilities(),
       [{ id: 1, email: "b@example.com" }],
+      createAuthorization(),
     );
 
     expect(() => command.execute(exsist)).toThrow(
@@ -629,6 +669,7 @@ describe("Command coverage", () => {
         { id: 1, email: null },
         { id: 2, email: "   " },
       ],
+      createAuthorization(),
     );
 
     expect(() => command.execute(exsist)).not.toThrow();
@@ -698,6 +739,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        createAuthorization(),
         [1],
       );
 
@@ -766,6 +808,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        createAuthorization(),
         [1],
       );
 
@@ -869,6 +912,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        createAuthorization(),
         [1],
       );
 
@@ -950,6 +994,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        createAuthorization(),
         [1],
       ).execute(records);
 
@@ -1026,6 +1071,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        createAuthorization(),
         [1],
       );
 
@@ -1087,6 +1133,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        createAuthorization(),
         [1],
       ).execute(records);
 
@@ -1156,6 +1203,7 @@ describe("Command coverage", () => {
           gateway,
           new InMemoryCacheService(),
           new NodeUtilities(),
+          createAuthorization(),
           [1],
         ).execute(records),
       ).not.toThrow();
@@ -1207,6 +1255,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        createAuthorization(),
         [1],
       ).execute(records);
 

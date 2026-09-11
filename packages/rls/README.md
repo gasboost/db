@@ -36,16 +36,131 @@ Google Sheets、SQL、Firebase Realtime Database などの具体的なストレ�
 
 ---
 
+## Explicit Allow
+
+認可条件を設けず、操作を明示的に許可したい場合は `allow()` を使用します。
+
+```ts
+import { allow, RowLevelSecurity } from "@gasboost/rls";
+
+const security = new RowLevelSecurity({
+  table: deals,
+
+  select: {
+    using: allow(),
+  },
+});
+```
+
+`allow()` は常に許可される Predicate Expression を表します。
+
+```text
+allow()
+↓
+true
+```
+
+`literal(true)` ではなく専用の Authorization AST として表現されるため、Interpreter / Compiler は「明示的な無条件許可」として扱うことができます。
+
+例えば、
+
+```text
+SheetORM
+→ true
+
+SQL
+→ TRUE
+
+Firebase RTDB
+→ true
+```
+
+のように各 Backend へ変換できます。
+
+---
+
+## Policy Semantics
+
+RLS の設定有無と Policy の有無は、それぞれ異なる意味を持ちます。
+
+```text
+RLS definition が存在しない
+→ unrestricted
+
+RLS definition が存在する
+かつ対象 operation の Policy が存在しない
+→ deny
+
+RLS definition が存在する
+かつ allow() が指定されている
+→ explicitly allow
+```
+
+例えば、
+
+```ts
+new RowLevelSecurity({
+  table: deals,
+
+  select: {
+    using: allow(),
+  },
+});
+```
+
+では `select` はすべて許可されます。
+
+一方、
+
+```ts
+new RowLevelSecurity({
+  table: deals,
+});
+```
+
+では、この Table に RLS が設定されているため、Policy が定義されていない operation は許可されません。
+
+この仕様により、
+
+```text
+RLSを利用しないTable
+→ 従来どおり unrestricted
+
+RLSを利用するTable
+→ 明示されたPolicyのみ許可
+
+認可条件を必要としないoperation
+→ allow() で明示
+```
+
+という区別ができます。
+
+---
+
+## Predicate Expressions
+
+利用可能な Predicate Expression は以下です。
+
+| Expression                 | 意味                                    |
+| -------------------------- | --------------------------------------- |
+| `allow()`                  | 常に許可                                |
+| `eq(left, right)`          | 左右の値が等しい                        |
+| `and(...conditions)`       | すべての条件を満たす                    |
+| `or(...conditions)`        | 1つ以上の条件を満たす                   |
+| `exists(table, condition)` | 対象Tableに条件を満たすRecordが存在する |
+
+---
+
 ## Installation
 
 ```bash
-pnpm add @gasboost/rls @gasboost/query zod
+pnpm add @gasboost/rls zod
 ```
 
 npm の場合:
 
 ```bash
-npm install @gasboost/rls @gasboost/query zod
+npm install @gasboost/rls zod
 ```
 
 ---
@@ -364,6 +479,7 @@ RLS は Database / Repository に対する恒常的な Authorization Rule とし
 │  ├─ principal
 │  └─ literal
 ├─ PredicateExpression
+│  ├─ allow
 │  ├─ eq
 │  ├─ and
 │  ├─ or
@@ -375,6 +491,10 @@ RLS は Database / Repository に対する恒常的な Authorization Rule とし
    ├─ update.check
    └─ delete.using
 ```
+
+`@gasboost/rls` は認可条件を AST として表現することだけを責務とします。
+
+具体的な評価・変換は各 Adapter / Interpreter の責務です。
 
 `@gasboost/rls` は認可条件を AST として表現することだけを責務とします。
 

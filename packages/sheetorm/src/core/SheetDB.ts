@@ -1,11 +1,19 @@
 import { Query, QueryEvaluation } from "@gasboost/query";
+import type { RowLevelSecurity } from "@gasboost/rls";
 import { ZodObject, z } from "zod";
 import { CreateCommand } from "../commands/CreateCommand";
 import { DeleteCommand } from "../commands/DeleteCommand";
 import { UpdateCommand } from "../commands/UpdateCommand";
-import { RecordWithRelations } from "../commands/WriteCommand";
+import {
+  RecordWithRelations,
+  WriteAuthorization,
+} from "../commands/WriteCommand";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
 import { Relationable, TableByName } from "./Relationable";
+import {
+  RowLevelSecurityEvaluator,
+  RowLevelSecurityRecord,
+} from "./RowLevelSecurityEvaluator";
 import { SheetRecords } from "./SheetRecords";
 import { SheetTable } from "./SheetTable";
 
@@ -51,6 +59,8 @@ export type SheetDBConfig<T extends readonly SheetTable<string, any>[]> = {
   gateway: AccessableDataStore;
   cacheService: GoogleAppsScript.Cache.CacheService;
   utilities: GoogleAppsScript.Utilities.Utilities;
+  principal?: Record<string, unknown>;
+  rowLevelSecurity?: readonly RowLevelSecurity<any>[];
 };
 
 export class SheetDB<
@@ -64,6 +74,11 @@ export class SheetDB<
   private gateway: AccessableDataStore;
   private CacheService: GoogleAppsScript.Cache.CacheService;
   private Utilities: GoogleAppsScript.Utilities.Utilities;
+  private readonly authorization: WriteAuthorization;
+
+  public readonly principal: Record<string, unknown>;
+  public readonly rowLevelSecurity: readonly RowLevelSecurity<any>[];
+  public readonly rls: RowLevelSecurityEvaluator;
 
   constructor(config: SheetDBConfig<T>) {
     this.tables = config.tables;
@@ -72,6 +87,34 @@ export class SheetDB<
     this.Utilities = config.utilities;
     this._table = this.tables[0] as TableByName<T, N>;
     this.cache = this.CacheService.getScriptCache();
+
+    this.principal = config.principal ?? {};
+    this.rowLevelSecurity = config.rowLevelSecurity ?? [];
+
+    this.rls = new RowLevelSecurityEvaluator({
+      principal: this.principal,
+      policies: this.rowLevelSecurity,
+      load: (tableName) => this.loadRaw(tableName),
+    });
+
+    this.authorization = {
+      ensureInsert: (table, records) => {
+        this.rls.ensureInsert(table, records);
+      },
+
+      ensureUpdate: (table, currentRecords, nextRecords) => {
+        this.rls.ensureUpdate({
+          table,
+          currentRecords,
+          nextRecords,
+          primaryKey: table.primaryKey as string,
+        });
+      },
+
+      ensureDelete: (table, records) => {
+        this.rls.ensureDelete(table, records);
+      },
+    };
   }
 
   public table<U extends T[number]["name"]>(name: U): SheetDB<T, U> {
@@ -98,12 +141,16 @@ export class SheetDB<
       this.CacheService,
       this.Utilities,
       params,
+      this.authorization,
     );
 
     const records = command.getDiff();
 
+    this.rls.ensureInsert(this._table, records as RowLevelSecurityRecord[]);
+
     if (this.transactionEnabled) {
       this._table.cache.add(command);
+
       return records;
     }
 
@@ -130,34 +177,40 @@ export class SheetDB<
       this.CacheService,
       this.Utilities,
       records,
+      this.authorization,
     );
 
+    this.gateway.table(this._table.name, this._table.dbId);
+
+    const currentRecords = this.gateway.read();
+
+    const previewRecords = new SheetRecords(
+      currentRecords,
+      this._table.primaryKey as string,
+    );
+
+    const updatedRecords = command.preview(previewRecords);
+
+    this.rls.ensureUpdate({
+      table: this._table,
+      currentRecords,
+      nextRecords: updatedRecords,
+      primaryKey: this._table.primaryKey as string,
+    });
+
     if (this.transactionEnabled) {
-      this.gateway.table(this._table.name, this._table.dbId);
-
-      const exsist = new SheetRecords(
-        this.gateway.read(),
-        this._table.primaryKey as string,
-      );
-
-      const updatedRecords = command.preview(exsist);
-
       this._table.cache.add(command);
 
       return updatedRecords;
     }
 
     try {
-      this.gateway.table(this._table.name, this._table.dbId);
-
-      const exsist = new SheetRecords(
-        this.gateway.read(),
+      const executionRecords = new SheetRecords(
+        currentRecords,
         this._table.primaryKey as string,
       );
 
-      const updatedRecords = command.execute(exsist);
-
-      return updatedRecords;
+      return command.execute(executionRecords);
     } finally {
       this._table.releaseLock();
     }
@@ -166,8 +219,10 @@ export class SheetDB<
   public upsert(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
     this.gateway.table(this._table.name, this._table.dbId);
 
+    const currentRecords = this.gateway.read();
+
     const exsist = new SheetRecords(
-      this.gateway.read(),
+      currentRecords,
       this._table.primaryKey as string,
     );
 
@@ -231,13 +286,56 @@ export class SheetDB<
             this.CacheService,
             this.Utilities,
             updateRecords,
+            this.authorization,
           )
         : null;
 
+    let updatedRecords: CurrentRecord<T, N>[] = [];
+
+    if (updateCommand) {
+      const previewRecords = new SheetRecords(
+        currentRecords,
+        this._table.primaryKey as string,
+      );
+
+      updatedRecords = updateCommand.preview(previewRecords) as CurrentRecord<
+        T,
+        N
+      >[];
+
+      this.rls.ensureUpdate({
+        table: this._table,
+        currentRecords,
+        nextRecords: updatedRecords,
+        primaryKey: this._table.primaryKey as string,
+      });
+    }
+
+    const createCommand =
+      createParams.length > 0
+        ? new CreateCommand(
+            this.gateway,
+            this._table,
+            this.CacheService,
+            this.Utilities,
+            createParams,
+            this.authorization,
+          )
+        : null;
+
+    let createdRecords: CurrentRecord<T, N>[] = [];
+
+    if (createCommand) {
+      createdRecords = createCommand.getDiff() as CurrentRecord<T, N>[];
+
+      this.rls.ensureInsert(
+        this._table,
+        createdRecords as RowLevelSecurityRecord[],
+      );
+    }
+
     if (this.transactionEnabled) {
       if (updateCommand) {
-        const updatedRecords = updateCommand.preview(exsist);
-
         updatedRecords.forEach((record, index) => {
           resultRecords[updateIndexes[index]] = record;
         });
@@ -245,22 +343,9 @@ export class SheetDB<
         this._table.cache.add(updateCommand);
       }
 
-      const createCommand =
-        createParams.length > 0
-          ? new CreateCommand(
-              this.gateway,
-              this._table,
-              this.CacheService,
-              this.Utilities,
-              createParams,
-            )
-          : null;
-
       if (createCommand) {
-        const createdRecords = createCommand.getDiff();
-
         createdRecords.forEach((record, index) => {
-          resultRecords[createIndexes[index]] = record as CurrentRecord<T, N>;
+          resultRecords[createIndexes[index]] = record;
         });
 
         this._table.cache.add(createCommand);
@@ -271,31 +356,35 @@ export class SheetDB<
 
     try {
       if (updateCommand) {
-        const updatedRecords = updateCommand.execute(exsist);
+        const executionRecords = new SheetRecords(
+          currentRecords,
+          this._table.primaryKey as string,
+        );
 
-        updatedRecords.forEach((record, index) => {
-          resultRecords[updateIndexes[index]] = record;
+        const executedRecords = updateCommand.execute(executionRecords);
+
+        executedRecords.forEach((record, index) => {
+          resultRecords[updateIndexes[index]] = record as CurrentRecord<T, N>;
         });
       }
 
-      const createCommand =
-        createParams.length > 0
-          ? new CreateCommand(
-              this.gateway,
-              this._table,
-              this.CacheService,
-              this.Utilities,
-              createParams,
-            )
-          : null;
-
       if (createCommand) {
-        createCommand.execute(exsist);
+        this.gateway.table(this._table.name, this._table.dbId);
 
-        const createdRecords = createCommand.getDiff();
+        const createExistingRecords = new SheetRecords(
+          this.gateway.read(),
+          this._table.primaryKey as string,
+        );
 
-        createdRecords.forEach((record, index) => {
-          resultRecords[createIndexes[index]] = record as CurrentRecord<T, N>;
+        createCommand.execute(createExistingRecords);
+
+        const executedRecords = createCommand.getDiff() as CurrentRecord<
+          T,
+          N
+        >[];
+
+        executedRecords.forEach((record, index) => {
+          resultRecords[createIndexes[index]] = record;
         });
       }
 
@@ -306,25 +395,37 @@ export class SheetDB<
   }
 
   public delete(pkValues: any[]): boolean {
+    this.gateway.table(this._table.name, this._table.dbId);
+
+    const currentRecords = this.gateway.read();
+
+    const primaryKey = this._table.primaryKey as string;
+
+    const targetRecords = currentRecords.filter((record) =>
+      pkValues.includes(record[primaryKey]),
+    );
+
+    this.rls.ensureDelete(this._table, targetRecords);
+
     const command = new DeleteCommand(
       this._table,
       this.gateway,
       this.CacheService,
       this.Utilities,
+      this.authorization,
       pkValues,
       this.transactionEnabled,
     );
 
     if (this.transactionEnabled) {
       this._table.cache.add(command);
+
       return true;
     }
 
     try {
-      this.gateway.table(this._table.name, this._table.dbId);
-
       const records = new SheetRecords(
-        this.gateway.read(),
+        currentRecords,
         this._table.primaryKey as string,
       );
 
@@ -352,9 +453,7 @@ export class SheetDB<
 
   public find(query?: Query<T, any>): any {
     if (!query) {
-      this.gateway.table(this._table.name, this._table.dbId);
-
-      return this.gateway.read();
+      return this.rls.read(this._table);
     }
 
     const evaluation = new QueryEvaluation(
@@ -384,13 +483,11 @@ export class SheetDB<
         throw new Error(`Table '${tableName}' not found.`);
       }
 
-      this.gateway.table(table.name, table.dbId);
-
-      return this.gateway.read();
+      return this.rls.read(table);
     });
   }
 
-  transaction<R>(fn: () => R): R {
+  public transaction<R>(fn: () => R): R {
     this.transactionEnabled = true;
 
     try {
@@ -409,7 +506,7 @@ export class SheetDB<
     }
   }
 
-  commit(table: T[number]): void {
+  public commit(table: T[number]): void {
     this.gateway.table(table.name, table.dbId);
 
     const cache = table.cache;
@@ -435,7 +532,7 @@ export class SheetDB<
     }
   }
 
-  rollback(table: T[number]): void {
+  public rollback(table: T[number]): void {
     const cache = table.cache;
 
     if (!cache.hasExsist()) {
@@ -452,7 +549,7 @@ export class SheetDB<
     }
   }
 
-  migrate() {
+  public migrate(): void {
     for (const table of this.tables) {
       const columns = table.schema.keyof().options;
 
@@ -466,10 +563,10 @@ export class SheetDB<
     }
   }
 
-  seed<U extends T[number]["name"]>(
+  public seed<U extends T[number]["name"]>(
     tableName: U,
     datas: z.infer<TableByName<T, U>["schema"]>[],
-  ) {
+  ): void {
     this.table(tableName);
 
     this.gateway.table(this._table.name, this._table.dbId);
@@ -489,12 +586,22 @@ export class SheetDB<
     }
   }
 
-  protect() {
+  public protect(): void {
     for (const table of this.tables) {
       this.gateway.table(table.name, table.dbId);
       this.gateway.protect();
     }
+  }
 
-    return;
+  public loadRaw(tableName: string): RowLevelSecurityRecord[] {
+    const table = this.tables.find((table) => table.name === tableName);
+
+    if (!table) {
+      throw new Error(`Table '${tableName}' not found.`);
+    }
+
+    this.gateway.table(table.name, table.dbId);
+
+    return this.gateway.read();
   }
 }

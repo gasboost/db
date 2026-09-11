@@ -1,0 +1,10 @@
+{
+  "name": "@gasboost/rls",
+  "dependencies": {
+    "@gasboost/query": "workspace:*",
+    "zod": "^4.5.4"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}

@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { JoinResolver } from "../src/Join";
 import { Join } from "../src/Join";
+
+const joinResolver: JoinResolver = ({ parent, table, children }) => ({
+  ...parent,
+  joined: {
+    table,
+    children,
+  },
+});
 
 describe("Join", () => {
   const join = new Join({
@@ -12,11 +21,14 @@ describe("Join", () => {
     const parents = [{ id: "p1", name: "Parent" }];
     const children = [{ id: "c1", parentId: "p1" }];
 
-    expect(join.combine(parents, children)).toEqual([
+    expect(join.combine(parents, children, joinResolver)).toEqual([
       {
         id: "p1",
         name: "Parent",
-        children: [{ id: "c1", parentId: "p1" }],
+        joined: {
+          table: "children",
+          children: [{ id: "c1", parentId: "p1" }],
+        },
       },
     ]);
   });
@@ -28,10 +40,13 @@ describe("Join", () => {
       { id: "c2", parentId: "p1" },
     ];
 
-    expect(join.combine(parents, children)).toEqual([
+    expect(join.combine(parents, children, joinResolver)).toEqual([
       {
         id: "p1",
-        children,
+        joined: {
+          table: "children",
+          children,
+        },
       },
     ]);
   });
@@ -43,14 +58,20 @@ describe("Join", () => {
       { id: "c2", parentId: "p2" },
     ];
 
-    expect(join.combine(parents, children)).toEqual([
+    expect(join.combine(parents, children, joinResolver)).toEqual([
       {
         id: "p1",
-        children: [{ id: "c1", parentId: "p1" }],
+        joined: {
+          table: "children",
+          children: [{ id: "c1", parentId: "p1" }],
+        },
       },
       {
         id: "p2",
-        children: [{ id: "c2", parentId: "p2" }],
+        joined: {
+          table: "children",
+          children: [{ id: "c2", parentId: "p2" }],
+        },
       },
     ]);
   });
@@ -58,10 +79,13 @@ describe("Join", () => {
   it("対応する子が存在しない親には空配列を設定する", () => {
     const parents = [{ id: "p1" }];
 
-    expect(join.combine(parents, [])).toEqual([
+    expect(join.combine(parents, [], joinResolver)).toEqual([
       {
         id: "p1",
-        children: [],
+        joined: {
+          table: "children",
+          children: [],
+        },
       },
     ]);
   });
@@ -70,10 +94,13 @@ describe("Join", () => {
     const parents = [{ id: "p1" }];
     const children = [{ id: "c1", parentId: "unknown" }];
 
-    expect(join.combine(parents, children)).toEqual([
+    expect(join.combine(parents, children, joinResolver)).toEqual([
       {
         id: "p1",
-        children: [],
+        joined: {
+          table: "children",
+          children: [],
+        },
       },
     ]);
   });
@@ -82,10 +109,13 @@ describe("Join", () => {
     const parents = [{ id: "p1" }];
     const children = [{ id: "c1", parentId: null }];
 
-    expect(join.combine(parents, children)).toEqual([
+    expect(join.combine(parents, children, joinResolver)).toEqual([
       {
         id: "p1",
-        children: [],
+        joined: {
+          table: "children",
+          children: [],
+        },
       },
     ]);
   });
@@ -94,10 +124,13 @@ describe("Join", () => {
     const parents = [{ id: "p1" }];
     const children = [{ id: "c1" }];
 
-    expect(join.combine(parents, children)).toEqual([
+    expect(join.combine(parents, children, joinResolver)).toEqual([
       {
         id: "p1",
-        children: [],
+        joined: {
+          table: "children",
+          children: [],
+        },
       },
     ]);
   });
@@ -105,10 +138,13 @@ describe("Join", () => {
   it("localKeyがnullの親には子を結合しない", () => {
     const parents = [{ id: null }];
 
-    expect(join.combine(parents, [{ parentId: null }])).toEqual([
+    expect(join.combine(parents, [{ parentId: null }], joinResolver)).toEqual([
       {
         id: null,
-        children: [],
+        joined: {
+          table: "children",
+          children: [],
+        },
       },
     ]);
   });
@@ -121,16 +157,22 @@ describe("Join", () => {
 
     const child = { id: "c1", parentId: "p1" };
 
-    expect(join.combine(parents, [child])).toEqual([
+    expect(join.combine(parents, [child], joinResolver)).toEqual([
       {
         id: "p1",
         name: "A",
-        children: [child],
+        joined: {
+          table: "children",
+          children: [child],
+        },
       },
       {
         id: "p1",
         name: "B",
-        children: [child],
+        joined: {
+          table: "children",
+          children: [child],
+        },
       },
     ]);
   });
@@ -139,8 +181,36 @@ describe("Join", () => {
     const parents = [{ id: "p1" }];
     const original = [{ id: "p1" }];
 
-    join.combine(parents, [{ parentId: "p1" }]);
+    join.combine(parents, [{ parentId: "p1" }], joinResolver);
 
     expect(parents).toEqual(original);
+  });
+
+  it("結合結果の表現をJoinResolverへ委譲する", () => {
+    const parents = [{ id: "p1", children: "original" }];
+    const children = [{ id: "c1", parentId: "p1" }];
+
+    const resolver = vi.fn(({ parent, children }) => ({
+      ...parent,
+      relations: {
+        children,
+      },
+    }));
+
+    expect(join.combine(parents, children, resolver)).toEqual([
+      {
+        id: "p1",
+        children: "original",
+        relations: {
+          children: [{ id: "c1", parentId: "p1" }],
+        },
+      },
+    ]);
+
+    expect(resolver).toHaveBeenCalledWith({
+      parent: { id: "p1", children: "original" },
+      table: "children",
+      children: [{ id: "c1", parentId: "p1" }],
+    });
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/query",
-  "version": "0.1.2",
+  "version": "1.0.0",
   "description": "Type-safe, storage-agnostic query engine powered by Zod",
   "repository": {
     "type": "git",

@@ -58,7 +58,7 @@ describe("object-based constructors", () => {
     expect(table.autoNumbering).toBeUndefined();
   });
 
-  it("configures SheetDB dependencies with named properties", () => {
+  it("configures SheetDB dependencies with named properties", async () => {
     const schema = z.object({ id: z.number(), name: z.string() });
     const table = new SheetTable({
       dbId: "db",
@@ -67,7 +67,15 @@ describe("object-based constructors", () => {
       primaryKey: "id",
     });
     const store = new InMemoryDataStore(
-      new Map([["db:users", [["id", "name"], [1, "Alice"]]]]),
+      new Map([
+        [
+          "db:users",
+          [
+            ["id", "name"],
+            [1, "Alice"],
+          ],
+        ],
+      ]),
     );
 
     const db = new SheetDB({
@@ -77,7 +85,7 @@ describe("object-based constructors", () => {
       utilities: new NodeUtilities(),
     });
 
-    expect(db.table("users").find()).toEqual([{ id: 1, name: "Alice" }]);
+    expect(await db.table("users").find()).toEqual([{ id: 1, name: "Alice" }]);
   });
 
   it("preserves table-name inference for SheetDB.table", () => {

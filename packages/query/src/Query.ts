@@ -9,52 +9,20 @@ export type CriteriaValue<
   K extends keyof z.infer<S>,
 > = z.infer<S>[K];
 
-export type Loader<T extends readonly TableDefinition[]> = <
-  N extends T[number]["name"],
->(
-  table: N,
-) => Promise<Record<string, unknown>[]>;
-
 export class Query<
   T extends readonly TableDefinition[],
   N extends T[number]["name"] = T[number]["name"],
 > {
-  private readonly requires: Filter[];
-  private readonly options: Filter[];
-  private orderByValue: OrderBy | null;
-  private limitValue: number | null;
-  private offsetValue: number | null;
-  private readonly joins: Join<T>[];
-  private readonly tableName: N;
+  public readonly tableName: N;
+  public readonly requires: Filter[] = [];
+  public readonly options: Filter[] = [];
+  public orderByValue: OrderBy | null = null;
+  public limitValue: number | null = null;
+  public offsetValue: number | null = null;
+  public readonly joins: Join<T>[] = [];
 
-  constructor({
-    tableName,
-    requires = [],
-    options = [],
-    orderBy = null,
-    limit = null,
-    offset = null,
-    joins = [],
-  }: {
-    tableName: N;
-    requires?: Filter[];
-    options?: Filter[];
-    orderBy?: OrderBy | null;
-    limit?: number | null;
-    offset?: number | null;
-    joins?: Join<T>[];
-  }) {
+  public constructor(tableName: N) {
     this.tableName = tableName;
-    this.requires = requires;
-    this.options = options;
-    this.orderByValue = orderBy;
-    this.limitValue = limit;
-    this.offsetValue = offset;
-    this.joins = joins;
-  }
-
-  public getTableName(): N {
-    return this.tableName;
   }
 
   public and<K extends keyof z.infer<TableByName<T, N>["schema"]>>(
@@ -120,69 +88,5 @@ export class Query<
     );
 
     return this;
-  }
-
-  public filter(records: Record<string, unknown>[]): Record<string, unknown>[] {
-    return records.filter((record) => {
-      const requires = this.requires.every((filter) =>
-        filter.isFullfiled(record),
-      );
-
-      const options =
-        this.options.length === 0 ||
-        this.options.some((filter) => filter.isFullfiled(record));
-
-      return requires && options;
-    });
-  }
-
-  public sort(records: Record<string, unknown>[]): Record<string, unknown>[] {
-    if (this.orderByValue !== null) {
-      records.sort((a, b) => this.orderByValue!.sort(a, b));
-    }
-
-    return records;
-  }
-
-  public shift(records: Record<string, unknown>[]): Record<string, unknown>[] {
-    if (this.offsetValue !== null && this.offsetValue > 0) {
-      records.splice(0, this.offsetValue);
-    }
-
-    return records;
-  }
-
-  public cut(records: Record<string, unknown>[]): Record<string, unknown>[] {
-    if (this.limitValue !== null && this.limitValue > 0) {
-      records.splice(this.limitValue);
-    }
-
-    return records;
-  }
-
-  public getJoins(): readonly Join<T>[] {
-    return this.joins;
-  }
-
-  public apply(records: Record<string, unknown>[]): Record<string, unknown>[] {
-    const filtered = this.filter(records);
-    const sorted = this.sort(filtered);
-    const shifted = this.shift(sorted);
-    return this.cut(shifted);
-  }
-
-  public async resolve(load: Loader<T>): Promise<Record<string, unknown>[]> {
-    let records = this.apply(await load(this.tableName));
-
-    for (const join of this.joins) {
-      const children =
-        join.query !== null
-          ? await join.query.resolve(load)
-          : await load(join.table);
-
-      records = join.combine(records, children);
-    }
-
-    return records;
   }
 }

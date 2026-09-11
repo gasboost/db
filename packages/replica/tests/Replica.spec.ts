@@ -154,9 +154,11 @@ describe("Replica", () => {
       },
     ]);
 
-    const query = new Query<typeof tables, "users">({
-      tableName: "users",
-    }).and("active", "=", [true]);
+    const query = new Query<typeof tables, "users">("users").and(
+      "active",
+      "=",
+      [true],
+    );
 
     expect(await replica.find(query)).toEqual([
       {
@@ -184,9 +186,11 @@ describe("Replica", () => {
       userId: "u1",
     });
 
-    const query = new Query<typeof tables, "users">({
-      tableName: "users",
-    }).join("id", "reservations", "userId");
+    const query = new Query<typeof tables, "users">("users").join(
+      "id",
+      "reservations",
+      "userId",
+    );
 
     expect(await replica.find(query)).toEqual([
       {
@@ -251,13 +255,16 @@ describe("Replica", () => {
       name: "Hanako",
     });
 
-    const reservations = new Query<typeof nestedTables, "reservations">({
-      tableName: "reservations",
-    }).join("staffId", "staffs", "id");
+    const reservations = new Query<typeof nestedTables, "reservations">(
+      "reservations",
+    ).join("staffId", "staffs", "id");
 
-    const users = new Query<typeof nestedTables, "users">({
-      tableName: "users",
-    }).join("id", "reservations", "userId", reservations);
+    const users = new Query<typeof nestedTables, "users">("users").join(
+      "id",
+      "reservations",
+      "userId",
+      reservations,
+    );
 
     expect(await replica.find(users)).toEqual([
       {

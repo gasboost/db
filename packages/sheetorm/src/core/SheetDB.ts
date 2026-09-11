@@ -1,10 +1,10 @@
+import { Query, QueryEvaluation } from "@gasboost/query";
 import { ZodObject, z } from "zod";
 import { CreateCommand } from "../commands/CreateCommand";
 import { DeleteCommand } from "../commands/DeleteCommand";
 import { UpdateCommand } from "../commands/UpdateCommand";
 import { RecordWithRelations } from "../commands/WriteCommand";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
-import { SheetQuery } from "../query/SheetQuery";
 import { Relationable, TableByName } from "./Relationable";
 import { SheetRecords } from "./SheetRecords";
 import { SheetTable } from "./SheetTable";
@@ -336,117 +336,58 @@ export class SheetDB<
     return true;
   }
 
-  query<U extends T[number]["name"]>(
-    tableName: U,
-  ): SheetQuery<T, TableByName<T, U>["schema"], U> {
-    return new SheetQuery<T, TableByName<T, U>["schema"], U>(
-      [],
-      [],
-      null,
-      null,
-      null,
-      [],
-      tableName,
-    );
+  public query<U extends T[number]["name"]>(tableName: U): Query<T, U> {
+    return new Query<T, U>(tableName);
   }
 
-  find(): RecordWithRelations<CurrentRecord<T, N>>[];
+  public find(): RecordWithRelations<CurrentRecord<T, N>>[];
 
-  find<U extends T[number]["name"]>(
-    query: SheetQuery<T, TableByName<T, U>["schema"], U>,
-    recursive?: boolean,
+  public find<U extends T[number]["name"]>(
+    query: Query<T, U>,
   ): RecordWithRelations<CurrentRecord<T, U>>[];
 
-  find(
-    query?: SheetQuery<T, any, any>,
-    recursive?: boolean,
+  public find(
+    query?: Query<T, any>,
   ): RecordWithRelations<CurrentRecord<T, N>>[];
 
-  find(query?: SheetQuery<T, any, any>, recursive?: boolean): any {
-    const queryTableName = query?.getTableName();
-
-    if (queryTableName) {
-      this.table(queryTableName as any);
-    }
-
-    if (!recursive) {
-      this.gateway.table(this._table.name, this._table.dbId);
-    }
-
-    const records = this.gateway.read();
-
+  public find(query?: Query<T, any>): any {
     if (!query) {
-      return records;
-    }
-
-    const filterdRecords = query.filter(records);
-    const sortedRecords = query.sort(filterdRecords);
-    const shiftedRecords = query.shift(sortedRecords);
-    const cuttedRecords = query.cut(shiftedRecords);
-
-    const joins = query.getJoins();
-    if (joins.length <= 0) {
-      return cuttedRecords;
-    }
-
-    const baseTableName = this._table.name;
-
-    joins.forEach((join) => {
-      this.table(baseTableName as any);
-
-      const parents = cuttedRecords.reduce(
-        (acc, record) => {
-          const key = record[join.localKey as string];
-
-          if (key === null || key === undefined) {
-            return acc;
-          }
-
-          const keyStr = String(key);
-
-          if (!acc[keyStr]) {
-            acc[keyStr] = [];
-          }
-
-          acc[keyStr].push(record);
-
-          return acc;
-        },
-        {} as Record<string, RecordWithRelations<CurrentRecord<T, N>>[]>,
-      );
-
-      this.table(join.table);
-
       this.gateway.table(this._table.name, this._table.dbId);
 
-      const children = this.find(join.query || undefined, true);
+      return this.gateway.read();
+    }
 
-      children.forEach((child) => {
-        const parentKey = child[join.foreignKey];
+    const evaluation = new QueryEvaluation(
+      query,
+      ({ parent, table, children }) => {
+        const relations =
+          typeof parent.relations === "object" &&
+          parent.relations !== null &&
+          !Array.isArray(parent.relations)
+            ? parent.relations
+            : {};
 
-        if (parentKey === null || parentKey === undefined) {
-          return;
-        }
-
-        const matchedParents = parents[String(parentKey)];
-
-        if (!matchedParents || matchedParents.length === 0) {
-          return;
-        }
-
-        matchedParents.forEach(
-          (parent: RecordWithRelations<CurrentRecord<T, N>>) => {
-            parent.relations ??= {};
-            parent.relations[join.table] ??= [];
-            parent.relations[join.table].push(child);
+        return {
+          ...parent,
+          relations: {
+            ...relations,
+            [table]: children,
           },
-        );
-      });
+        };
+      },
+    );
+
+    return evaluation.resolve((tableName) => {
+      const table = this.tables.find((table) => table.name === tableName);
+
+      if (!table) {
+        throw new Error(`Table '${tableName}' not found.`);
+      }
+
+      this.gateway.table(table.name, table.dbId);
+
+      return this.gateway.read();
     });
-
-    this.table(baseTableName as any);
-
-    return cuttedRecords;
   }
 
   transaction<R>(fn: () => R): R {

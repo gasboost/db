@@ -141,7 +141,7 @@ describe("SheetDB", () => {
     expect(() => db.delete([1])).not.toThrow();
   });
 
-  it("commits delete diff during transaction", () => {
+  it("commits delete diff during transaction", async () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
     const table = new SheetTable({
       dbId: "db",
@@ -166,10 +166,11 @@ describe("SheetDB", () => {
     });
 
     db.table("users");
-    expect(db.find().length).toBe(1);
+    const records = await db.find();
+    expect(records.length).toBe(1);
   });
 
-  it("commits delete diff when called directly", () => {
+  it("commits delete diff when called directly", async () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
     const table = new SheetTable({
       dbId: "db",
@@ -201,7 +202,8 @@ describe("SheetDB", () => {
     expect(() => db.commit(table)).not.toThrow();
 
     db.table("users");
-    expect(db.find().map((row) => row[table.primaryKey])).toEqual([2]);
+    const records = await db.find();
+    expect(records.map((row) => row[table.primaryKey])).toEqual([2]);
   });
 
   it("updates one row without removing the others", () => {
@@ -973,5 +975,143 @@ describe("SheetDB", () => {
       [20, 2],
     ]);
     expect(store.get("db:others").rows).toEqual([]);
+  });
+
+  it("queryを@gasboost/queryで解決する", async () => {
+    const userSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      name: z.string(),
+    });
+
+    const userTable = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: userSchema,
+      primaryKey: "id",
+    });
+
+    const store = new InMemoryDataStore(
+      new Map([
+        [
+          "db:users",
+          [
+            ["id", "name"],
+            [1, "Alice"],
+            [2, "Bob"],
+          ],
+        ],
+      ]),
+    );
+    const db = new SheetDB({
+      tables: [userTable] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
+
+    const query = db.query("users").and("name", "=", ["Alice"]);
+
+    const records = await db.find(query);
+
+    expect(records).toEqual([
+      {
+        id: 1,
+        name: "Alice",
+      },
+    ]);
+  });
+
+  it("joinを@gasboost/queryで解決する", async () => {
+    const userSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      name: z.string(),
+    });
+
+    const postSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      userId: z.number(),
+      title: z.string(),
+    });
+
+    const userTable = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: userSchema,
+      primaryKey: "id",
+    });
+
+    const postTable = new SheetTable({
+      dbId: "db",
+      name: "posts",
+      schema: postSchema,
+      primaryKey: "id",
+    });
+
+    const store = new InMemoryDataStore(
+      new Map([
+        [
+          "db:users",
+          [
+            ["id", "name"],
+            [1, "Alice"],
+            [2, "Bob"],
+          ],
+        ],
+        [
+          "db:posts",
+          [
+            ["id", "userId", "title"],
+            [10, 1, "Post 1"],
+            [11, 1, "Post 2"],
+            [12, 2, "Post 3"],
+          ],
+        ],
+      ]),
+    );
+
+    const db = new SheetDB({
+      tables: [userTable, postTable] as const,
+      gateway: new InMemoryGateway(store),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
+
+    const query = db.query("users").join("id", "posts", "userId");
+
+    const records = await db.find(query);
+
+    expect(records).toEqual([
+      {
+        id: 1,
+        name: "Alice",
+        relations: {
+          posts: [
+            {
+              id: 10,
+              userId: 1,
+              title: "Post 1",
+            },
+            {
+              id: 11,
+              userId: 1,
+              title: "Post 2",
+            },
+          ],
+        },
+      },
+      {
+        id: 2,
+        name: "Bob",
+        relations: {
+          posts: [
+            {
+              id: 12,
+              userId: 2,
+              title: "Post 3",
+            },
+          ],
+        },
+      },
+    ]);
   });
 });

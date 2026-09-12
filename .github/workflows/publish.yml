@@ -101,7 +101,7 @@ jobs:
         run: pnpm --filter @gasboost/rls test
 
       - name: Build rls
-        if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
+        if: ${{ needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/rls build
 
       - name: Verify rls package contents

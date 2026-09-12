@@ -1,3 +1,9 @@
+export type FirebaseCustomTokenUtilities = {
+  base64EncodeWebSafe(data: string | ArrayLike<number>): string;
+
+  computeRsaSha256Signature(value: string, key: string): number[];
+};
+
 export type FirebaseServiceAccount = {
   readonly email: string;
   readonly privateKey: string;
@@ -39,7 +45,7 @@ export class FirebaseCustomToken {
     uid: string;
     claims?: FirebaseCustomClaims;
     serviceAccount: FirebaseServiceAccount;
-    utilities: GoogleAppsScript.Utilities.Utilities;
+    utilities: FirebaseCustomTokenUtilities;
     now?: Date;
   }): string {
     if (uid.length === 0) {

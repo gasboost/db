@@ -1,5 +1,5 @@
 import { Query, QueryEvaluation } from "@gasboost/query";
-import type { RowLevelSecurity } from "@gasboost/rls";
+import type { PredicateExpression, RowLevelSecurity } from "@gasboost/rls";
 import { ZodObject, z } from "zod";
 import { CreateCommand } from "../commands/CreateCommand";
 import { DeleteCommand } from "../commands/DeleteCommand";
@@ -43,7 +43,9 @@ type CreateRecord<T extends ZodObject<any>> = {
 type CreateParams<
   T extends readonly Relationable<any>[],
   Z extends ZodObject<any>,
-> = CreateRecord<Z> & { relations?: CreateRelations<T> };
+> = CreateRecord<Z> & {
+  relations?: CreateRelations<T>;
+};
 
 export type CurrentRecord<
   T extends readonly SheetTable<string, any>[],
@@ -77,7 +79,9 @@ export class SheetDB<
   private readonly authorization: WriteAuthorization;
 
   public readonly principal: Record<string, unknown>;
+
   public readonly rowLevelSecurity: readonly RowLevelSecurity<T[number]>[];
+
   public readonly rls: RowLevelSecurityEvaluator;
 
   constructor(config: SheetDBConfig<T>) {
@@ -85,10 +89,13 @@ export class SheetDB<
     this.gateway = config.gateway;
     this.CacheService = config.cacheService;
     this.Utilities = config.utilities;
+
     this._table = this.tables[0] as TableByName<T, N>;
+
     this.cache = this.CacheService.getScriptCache();
 
     this.principal = config.principal ?? {};
+
     this.rowLevelSecurity = config.rowLevelSecurity ?? [];
 
     this.rls = new RowLevelSecurityEvaluator({
@@ -119,7 +126,7 @@ export class SheetDB<
 
   public table<U extends T[number]["name"]>(name: U): SheetDB<T, U> {
     const table = this.tables.find(
-      (t): t is TableByName<T, U> => t.name === name,
+      (candidate): candidate is TableByName<T, U> => candidate.name === name,
     );
 
     if (!table) {
@@ -127,6 +134,7 @@ export class SheetDB<
     }
 
     this._table = table as unknown as TableByName<T, N>;
+
     this.gateway.table(this._table.name, this._table.dbId);
 
     return this as any;
@@ -240,15 +248,17 @@ export class SheetDB<
     >[];
 
     const createIndexes: number[] = [];
+
     const updateIndexes: number[] = [];
 
     const createParams: Record<string, any>[] = [];
+
     const updateRecords: Record<string, any>[] = [];
 
     records.forEach((record, index) => {
-      const pkValue = record[this._table.primaryKey as string];
+      const primaryKeyValue = record[this._table.primaryKey as string];
 
-      if (isEmptyPrimaryKey(pkValue)) {
+      if (isEmptyPrimaryKey(primaryKeyValue)) {
         if (!this._table.autoNumbering) {
           throw new Error("Primary key is required for upsert.");
         }
@@ -256,15 +266,17 @@ export class SheetDB<
         delete record[this._table.primaryKey as string];
 
         createIndexes.push(index);
+
         createParams.push(record);
 
         return;
       }
 
-      const existing = exsist.getRecord(pkValue);
+      const existing = exsist.getRecord(primaryKeyValue);
 
       if (existing) {
         updateIndexes.push(index);
+
         updateRecords.push(record);
 
         return;
@@ -275,6 +287,7 @@ export class SheetDB<
       }
 
       createIndexes.push(index);
+
       createParams.push(record);
     });
 
@@ -394,7 +407,7 @@ export class SheetDB<
     }
   }
 
-  public delete(pkValues: any[]): boolean {
+  public delete(primaryKeyValues: any[]): boolean {
     this.gateway.table(this._table.name, this._table.dbId);
 
     const currentRecords = this.gateway.read();
@@ -402,7 +415,7 @@ export class SheetDB<
     const primaryKey = this._table.primaryKey as string;
 
     const targetRecords = currentRecords.filter((record) =>
-      pkValues.includes(record[primaryKey]),
+      primaryKeyValues.includes(record[primaryKey]),
     );
 
     this.rls.ensureDelete(this._table, targetRecords);
@@ -413,7 +426,7 @@ export class SheetDB<
       this.CacheService,
       this.Utilities,
       this.authorization,
-      pkValues,
+      primaryKeyValues,
       this.transactionEnabled,
     );
 
@@ -424,10 +437,7 @@ export class SheetDB<
     }
 
     try {
-      const records = new SheetRecords(
-        currentRecords,
-        this._table.primaryKey as string,
-      );
+      const records = new SheetRecords(currentRecords, primaryKey);
 
       command.execute(records);
     } finally {
@@ -452,8 +462,57 @@ export class SheetDB<
   ): RecordWithRelations<CurrentRecord<T, N>>[];
 
   public find(query?: Query<T, any>): any {
-    if (!query) {
-      return this.rls.read(this._table);
+    const tableNames =
+      query === undefined
+        ? new Set<string>([this._table.name])
+        : this.collectQueryTableNames(query);
+
+    this.collectRowLevelSecurityTableNames(tableNames);
+
+    const tables = Array.from(tableNames).map((tableName) => {
+      const table = this.tables.find(
+        (candidate) => candidate.name === tableName,
+      );
+
+      if (!table) {
+        throw new Error(`Table '${tableName}' not found.`);
+      }
+
+      return table;
+    });
+
+    const loaded = this.gateway.readMany(
+      tables.map((table) => ({
+        dbId: table.dbId,
+        sheetName: table.name,
+      })),
+    );
+
+    const recordsByTable = new Map<string, RowLevelSecurityRecord[]>();
+
+    for (const table of tables) {
+      recordsByTable.set(
+        table.name,
+        loaded.get(`${table.dbId}:${table.name}`) ?? [],
+      );
+    }
+
+    const rowLevelSecurity = new RowLevelSecurityEvaluator({
+      principal: this.principal,
+      policies: this.rowLevelSecurity,
+      load: (tableName) => {
+        const records = recordsByTable.get(tableName);
+
+        if (records === undefined) {
+          throw new Error(`Table '${tableName}' was not loaded.`);
+        }
+
+        return records;
+      },
+    });
+
+    if (query === undefined) {
+      return rowLevelSecurity.read(this._table);
     }
 
     const evaluation = new QueryEvaluation(
@@ -477,13 +536,15 @@ export class SheetDB<
     );
 
     return evaluation.resolve((tableName) => {
-      const table = this.tables.find((table) => table.name === tableName);
+      const table = this.tables.find(
+        (candidate) => candidate.name === tableName,
+      );
 
       if (!table) {
         throw new Error(`Table '${tableName}' not found.`);
       }
 
-      return this.rls.read(table);
+      return rowLevelSecurity.read(table);
     });
   }
 
@@ -496,12 +557,13 @@ export class SheetDB<
       this.tables.forEach((table) => this.commit(table));
 
       return result;
-    } catch (e) {
+    } catch (error) {
       this.tables.forEach((table) => this.rollback(table));
 
-      throw e;
+      throw error;
     } finally {
       this.tables.forEach((table) => table.cache.clear());
+
       this.transactionEnabled = false;
     }
   }
@@ -525,6 +587,7 @@ export class SheetDB<
 
       while (cache.hasNext()) {
         const command = cache.next();
+
         command.execute(records);
       }
     } finally {
@@ -543,6 +606,7 @@ export class SheetDB<
 
     try {
       this.gateway.table(table.name, table.dbId);
+
       this.gateway.rewrite(cache.getExsist());
     } finally {
       table.releaseLock();
@@ -589,12 +653,13 @@ export class SheetDB<
   public protect(): void {
     for (const table of this.tables) {
       this.gateway.table(table.name, table.dbId);
+
       this.gateway.protect();
     }
   }
 
   public loadRaw(tableName: string): RowLevelSecurityRecord[] {
-    const table = this.tables.find((table) => table.name === tableName);
+    const table = this.tables.find((candidate) => candidate.name === tableName);
 
     if (!table) {
       throw new Error(`Table '${tableName}' not found.`);
@@ -603,5 +668,68 @@ export class SheetDB<
     this.gateway.table(table.name, table.dbId);
 
     return this.gateway.read();
+  }
+
+  private collectQueryTableNames(
+    query: Query<T, any>,
+    tableNames = new Set<string>(),
+  ): Set<string> {
+    tableNames.add(query.tableName);
+
+    for (const join of query.joins) {
+      tableNames.add(join.table);
+
+      if (join.query !== null) {
+        this.collectQueryTableNames(join.query, tableNames);
+      }
+    }
+
+    return tableNames;
+  }
+
+  private collectRowLevelSecurityTableNames(tableNames: Set<string>): void {
+    let previousSize = -1;
+
+    while (previousSize !== tableNames.size) {
+      previousSize = tableNames.size;
+
+      for (const tableName of Array.from(tableNames)) {
+        const policy = this.rowLevelSecurity.find(
+          (candidate) => candidate.table.name === tableName,
+        );
+
+        if (policy?.select === null || policy?.select === undefined) {
+          continue;
+        }
+
+        this.collectPredicateTableNames(policy.select.using, tableNames);
+      }
+    }
+  }
+
+  private collectPredicateTableNames(
+    expression: PredicateExpression,
+    tableNames: Set<string>,
+  ): void {
+    switch (expression.type) {
+      case "allow":
+      case "eq":
+        return;
+
+      case "and":
+      case "or":
+        for (const condition of expression.conditions) {
+          this.collectPredicateTableNames(condition, tableNames);
+        }
+
+        return;
+
+      case "exists":
+        tableNames.add(expression.table.name);
+
+        this.collectPredicateTableNames(expression.condition, tableNames);
+
+        return;
+    }
   }
 }

@@ -62,9 +62,63 @@ jobs:
       - name: Build realtime-firebase
         run: pnpm --filter @gasboost/realtime-firebase build
 
-      - name: Pack realtime-firebase
-        working-directory: packages/realtime-firebase
-        run: pnpm pack
+      - name: Pack and smoke test realtime-firebase
+        run: |
+          pnpm --filter @gasboost/rls pack
+          pnpm --filter @gasboost/realtime-firebase pack
+
+          RLS_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-rls-*.tgz' -print -quit)"
+          REALTIME_FIREBASE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-realtime-firebase-*.tgz' -print -quit)"
+
+          rm -rf /tmp/realtime-firebase-consumer
+          mkdir -p /tmp/realtime-firebase-consumer
+          cd /tmp/realtime-firebase-consumer
+
+          pnpm init
+
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
+          pkg.pnpm = {
+              overrides: {
+              '@gasboost/rls': 'file:${RLS_PACKAGE_FILE}'
+              }
+          };
+
+          fs.writeFileSync(
+              'package.json',
+              JSON.stringify(pkg, null, 2) + '\n'
+          );
+          "
+
+          pnpm add "$REALTIME_FIREBASE_PACKAGE_FILE"
+          pnpm add -D typescript zod
+
+          cat > index.ts <<'EOF'
+          import {
+          FirebaseCustomToken,
+          FirebaseRtdb,
+          } from "@gasboost/realtime-firebase";
+
+          void FirebaseCustomToken;
+          void FirebaseRtdb;
+          EOF
+
+          cat > tsconfig.json <<'EOF'
+          {
+          "compilerOptions": {
+              "target": "ES2022",
+              "module": "NodeNext",
+              "moduleResolution": "NodeNext",
+              "strict": true,
+              "skipLibCheck": false
+          },
+          "include": ["index.ts"]
+          }
+          EOF
+
+          pnpm exec tsc --noEmit
 
       - name: Typecheck replica
         run: pnpm --filter @gasboost/replica typecheck

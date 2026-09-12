@@ -29,6 +29,16 @@ importers:
       zod:
         specifier: ^4.5.4
         version: 4.5.4
+    devDependencies:
+      '@gasboost/fake-node':
+        specifier: ^0.1.1
+        version: 0.1.1(date-fns@4.4.0)
+      '@types/google-apps-script':
+        specifier: ^2.0.12
+        version: 2.0.12
+      '@types/node':
+        specifier: ^26.4.1
+        version: 26.4.1
 
   packages/replica:
     dependencies:

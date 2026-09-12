@@ -1,6 +1,6 @@
 # @gasboost/realtime-firebase
 
-`@gasboost/rls` の Row Level Security 定義から、Firebase Realtime Database 向けの認可レイアウト、型安全な runtime path、Firebase Security Rules を生成するパッケージです。
+`@gasboost/rls` の Row Level Security 定義から Firebase Realtime Database 向けの認可レイアウト、型安全な runtime path、Firebase Security Rules を生成し、Firebase Authentication 向けの Custom Token generation を提供するパッケージです。
 
 ## 概要
 
@@ -273,6 +273,256 @@ gasboost rtdb rules
 
 `@gasboost/realtime-firebase` 自体は CLI や filesystem I/O を担当しません。
 
+---
+
+## Firebase Custom Token
+
+`@gasboost/realtime-firebase` は、Firebase Authentication の Custom Token を生成できます。
+
+Firebase Admin SDK や JWT library は利用せず、Google Apps Script 標準の `Utilities` を利用して RS256 署名を行います。
+
+```ts
+import { FirebaseCustomToken } from "@gasboost/realtime-firebase";
+
+const token = FirebaseCustomToken.generate({
+  uid: "user-1",
+
+  claims: {
+    storeId: "store-1",
+  },
+
+  serviceAccount: {
+    email: "firebase-adminsdk@example.iam.gserviceaccount.com",
+    privateKey,
+  },
+
+  utilities: Utilities,
+});
+```
+
+生成される token は Firebase Authentication の Custom Token として利用できます。
+
+```text
+header.payload.signature
+```
+
+JWT header:
+
+```json
+{
+  "alg": "RS256",
+  "typ": "JWT"
+}
+```
+
+payload には Firebase Custom Token に必要な以下の値が含まれます。
+
+```text
+iss
+sub
+aud
+iat
+exp
+uid
+claims
+```
+
+`iss` / `sub` には Service Account の email が設定されます。
+
+`iat` は token 発行時刻、`exp` はその 1 時間後です。
+
+### Custom claims
+
+Firebase Authentication の custom claims は `claims` として指定します。
+
+```ts
+const token = FirebaseCustomToken.generate({
+  uid: "user-1",
+
+  claims: {
+    storeId: "store-1",
+    role: "manager",
+  },
+
+  serviceAccount: {
+    email: serviceAccountEmail,
+    privateKey,
+  },
+
+  utilities: Utilities,
+});
+```
+
+例えば RTDB の Principal mapping で、
+
+```ts
+principal: {
+  userId: "auth.uid",
+  storeId: "auth.token.storeId",
+},
+```
+
+と定義した場合、
+
+```ts
+claims: {
+  storeId: "store-1",
+}
+```
+
+として発行した値を、
+
+```text
+auth.token.storeId
+```
+
+として Firebase Security Rules から参照できます。
+
+このため、
+
+```text
+Firebase Custom Token
+        ↓
+Firebase Authentication
+        ↓
+auth.uid / auth.token.*
+        ↓
+Firebase Security Rules
+        ↓
+RLS
+```
+
+という形で、Gasboost の Principal と Firebase Authentication を接続できます。
+
+### UID
+
+`uid` は Firebase Authentication 上の User ID です。
+
+```ts
+FirebaseCustomToken.generate({
+  uid: "user-1",
+  // ...
+});
+```
+
+`uid` は 1〜128 文字である必要があります。
+
+空文字や 128 文字を超える値は拒否されます。
+
+### Reserved claims
+
+Firebase / OpenID Connect が予約している claim は custom claims として利用できません。
+
+例えば以下は拒否されます。
+
+```ts
+claims: {
+  sub: "value",
+}
+```
+
+予約済み claim には以下があります。
+
+```text
+acr
+amr
+at_hash
+aud
+auth_time
+azp
+cnf
+c_hash
+exp
+iat
+iss
+jti
+nbf
+nonce
+sub
+firebase
+user_id
+```
+
+### Service Account
+
+Custom Token の署名には Firebase project に紐付いた Service Account の認証情報を使用します。
+
+```ts
+serviceAccount: {
+  email: serviceAccountEmail,
+  privateKey,
+}
+```
+
+private key は application source code に直接埋め込まず、安全な credential storage から取得してください。
+
+`@gasboost/realtime-firebase` は Service Account credential の保存や Secret Manager integration を担当しません。
+
+### GAS Utilities
+
+署名処理には Google Apps Script 標準の `Utilities` を使用します。
+
+内部では、
+
+```ts
+Utilities.computeRsaSha256Signature(...)
+```
+
+による RSA SHA-256 署名と、
+
+```ts
+Utilities.base64EncodeWebSafe(...)
+```
+
+による base64url encoding を利用します。
+
+そのため Firebase Admin SDK や JWT library は必要ありません。
+
+### Client authentication
+
+生成した Custom Token は frontend へ返し、Firebase 公式 SDK の `signInWithCustomToken()` に渡します。
+
+```ts
+import { getAuth, signInWithCustomToken } from "firebase/auth";
+
+const auth = getAuth();
+
+await signInWithCustomToken(auth, token);
+```
+
+`@gasboost/realtime-firebase` は Firebase Authentication client SDK をラップしません。
+
+### Authentication package integration
+
+`FirebaseCustomToken` は `@gasboost/auth` に依存しません。
+
+```text
+@gasboost/auth
+      ↓
+integration adapter
+      ↓
+@gasboost/realtime-firebase
+      ↓
+Firebase Custom Token
+```
+
+`FirebaseCustomToken` が扱うのは、
+
+```text
+uid
+claims
+Service Account
+GAS Utilities
+```
+
+だけです。
+
+Gasboost Auth の `User` / `Session` や認証 lifecycle は認識しません。
+
+`@gasboost/auth` との接続は integration package の責務です。
+
+---
+
 ## Principal mapping
 
 RLS の Principal は Firebase Authentication 上の値へ明示的に対応付けます。
@@ -479,17 +729,26 @@ primaryKey
 責務は次の範囲に限定します。
 
 ```text
-RLS
- ↓
-Authorization layout
- ├─ Record path
- ├─ Subscription scope
- └─ Firebase Security Rules
+@gasboost/realtime-firebase
+  │
+  ├─ RLS
+  │    ↓
+  │  Authorization layout
+  │    ├─ Record path
+  │    ├─ Subscription scope
+  │    └─ Firebase Security Rules
+  │
+  └─ Firebase Authentication
+       └─ Custom Token generation
 ```
 
 Firebase への通信は Firebase 公式 SDK が担当します。
 
+Firebase Authentication の client-side sign in も Firebase 公式 SDK が担当します。
+
 CLI command、config file、filesystem output は `@gasboost/cli` が担当します。
+
+`@gasboost/auth` との lifecycle integration は別 integration package が担当します。
 
 ## Architecture
 

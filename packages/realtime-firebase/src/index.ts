@@ -1,3 +1,4 @@
+export * from "./FirebaseCustomToken";
 export * from "./FirebaseRtdb";
 export * from "./FirebaseRtdbBinding";
 export * from "./FirebaseRtdbInvariantCompiler";

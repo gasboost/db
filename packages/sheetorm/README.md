@@ -115,15 +115,123 @@ SheetORM は Google Apps Script 環境での利用を前提としています。
 
 以下の GAS Built-in API を利用します。
 
-- `SpreadsheetApp`
 - `CacheService`
 - `Utilities`
+
+また、Google Sheets API v4 の高度なサービスを利用します。
+
+- `Sheets`
+
+`Sheets` を利用するため、`appsscript.json` で高度なサービスを有効化してください。
+
+```json id="xxi3gg"
+{
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Sheets",
+        "version": "v4",
+        "serviceId": "sheets"
+      }
+    ]
+  }
+}
+```
 
 TypeScript で GAS を開発する場合は、必要に応じて型定義も追加してください。
 
 ```bash
 pnpm add -D @types/google-apps-script
 ```
+
+---
+
+## Google Sheets API
+
+`@gasboost/sheetorm` v2 では、スプレッドシートへのアクセスに `SpreadsheetApp` ではなく Google Sheets API v4 を使用します。
+
+`appsscript.json` で Google Sheets の高度なサービスを有効化してください。
+
+```json
+{
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Sheets",
+        "version": "v4",
+        "serviceId": "sheets"
+      }
+    ]
+  }
+}
+```
+
+そのうえで、`SheetGateway` に `Sheets` を渡します。
+
+```ts
+import { SheetDB, SheetGateway } from "@gasboost/sheetorm";
+
+const db = new SheetDB({
+  tables,
+  gateway: new SheetGateway(Sheets!),
+  cacheService: CacheService,
+  utilities: Utilities,
+});
+```
+
+各 `SheetTable` には、対象スプレッドシートの ID を `dbId` として指定します。
+
+```ts
+const users = new SheetTable({
+  name: "users",
+  dbId: "SPREADSHEET_ID",
+  schema: userSchema,
+});
+```
+
+### ローカル環境
+
+Apps Script の高度なサービスを利用できないローカル環境向けに、`@gasboost/sheetorm` は `SheetsStub` を提供します。
+
+```ts
+import { SheetGateway, SheetsStub } from "@gasboost/sheetorm";
+
+const gateway = new SheetGateway(SheetsStub);
+```
+
+`SheetsStub` は `SheetGateway` が必要とする最小限の Sheets API インターフェースのみを提供します。
+
+Google Sheets のデータストア自体を再現するものではありません。
+
+## v1 から v2 への移行
+
+v2 では `SheetGateway` の生成方法が変更されています。
+
+v1:
+
+```ts
+const gateway = new SheetGateway(SpreadsheetApp);
+```
+
+v2:
+
+```ts
+const gateway = new SheetGateway(Sheets!);
+```
+
+あわせて、`appsscript.json` で Google Sheets の高度なサービスを有効化してください。
+
+`SheetDB` の CRUD API や Query API に変更はありません。
+
+内部実装では、`SpreadsheetApp` から Google Sheets API v4 へ移行し、スプレッドシート I/O を次のように最適化しています。
+
+- 複数テーブルの読み込みを `spreadsheets.values.batchGet` でまとめて取得
+- insert は append による追記
+- update はテーブル全体を書き直さず、変更対象行だけを書き込み
+- delete は対象行だけを削除
+- 全件 rewrite は rollback など必要なケースに限定
+
+これにより、特に複数テーブルを参照する Query や Relation において、Apps Script から Google Sheets へのアクセス回数と書き込み範囲を削減できます。
 
 ---
 
@@ -156,7 +264,7 @@ const userTable = new SheetTable({
 
 const db = new SheetDB({
   tables: [userTable] as const,
-  gateway: new SheetGateway(SpreadsheetApp),
+  gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
 });
@@ -605,7 +713,7 @@ Principal と Row Level Security を `SheetDB` に渡します。
 ```ts
 const db = new SheetDB({
   tables: [dealTable] as const,
-  gateway: new SheetGateway(SpreadsheetApp),
+  gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
 
@@ -1433,7 +1541,7 @@ commentTable.reference("postId", postTable, "id", "cascade");
 
 const db = new SheetDB({
   tables: [userTable, postTable, commentTable] as const,
-  gateway: new SheetGateway(SpreadsheetApp),
+  gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
 });

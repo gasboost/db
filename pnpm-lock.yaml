@@ -21,6 +21,15 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
 
+  packages/realtime-firebase:
+    dependencies:
+      '@gasboost/rls':
+        specifier: workspace:*
+        version: link:../rls
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
   packages/replica:
     dependencies:
       '@gasboost/query':

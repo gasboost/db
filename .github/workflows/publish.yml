@@ -22,6 +22,7 @@ jobs:
       publish-query: ${{ steps.versions.outputs.publish-query }}
       publish-replica: ${{ steps.versions.outputs.publish-replica }}
       publish-rls: ${{ steps.versions.outputs.publish-rls }}
+      publish-realtime-firebase: ${{ steps.versions.outputs.publish-realtime-firebase }}
 
     steps:
       - name: Checkout
@@ -60,10 +61,11 @@ jobs:
           check_package publish-replica packages/replica/package.json
           check_package publish-sheetorm packages/sheetorm/package.json
           check_package publish-rls packages/rls/package.json
+          check_package publish-realtime-firebase packages/realtime-firebase/package.json
 
   publish:
     needs: check-versions
-    if: ${{ needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-rls == 'true' }}
+    if: ${{ needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
     runs-on: ubuntu-latest
 
     permissions:
@@ -89,9 +91,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # query は replica の workspace dependency。
-      # 将来 sheetorm も query に依存する予定なので、
-      # いずれかを publish する場合は先に query の dist を生成する。
+      # @gasboost/rls は sheetorm / realtime-firebase の workspace dependency。
+      # 依存先 package の build より先に dist を生成する。
       - name: Typecheck rls
         if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
         run: pnpm --filter @gasboost/rls typecheck
@@ -101,7 +102,7 @@ jobs:
         run: pnpm --filter @gasboost/rls test
 
       - name: Build rls
-        if: ${{ needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' }}
+        if: ${{ needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
         run: pnpm --filter @gasboost/rls build
 
       - name: Verify rls package contents
@@ -109,9 +110,32 @@ jobs:
         working-directory: packages/rls
         run: pnpm pack
 
+      # 依存元を先に publish する。
       - name: Publish rls
         if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
         working-directory: packages/rls
+        run: pnpm publish --access public --no-git-checks
+
+      - name: Typecheck realtime-firebase
+        if: ${{ needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+        run: pnpm --filter @gasboost/realtime-firebase typecheck
+
+      - name: Test realtime-firebase
+        if: ${{ needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+        run: pnpm --filter @gasboost/realtime-firebase test
+
+      - name: Build realtime-firebase
+        if: ${{ needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+        run: pnpm --filter @gasboost/realtime-firebase build
+
+      - name: Verify realtime-firebase package contents
+        if: ${{ needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+        working-directory: packages/realtime-firebase
+        run: pnpm pack
+
+      - name: Publish realtime-firebase
+        if: ${{ needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+        working-directory: packages/realtime-firebase
         run: pnpm publish --access public --no-git-checks
 
       - name: Typecheck query
@@ -150,7 +174,6 @@ jobs:
         if: ${{ needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/sheetorm build
 
-      # 依存元から先に publish する。
       - name: Verify query package contents
         if: ${{ needs.check-versions.outputs.publish-query == 'true' }}
         working-directory: packages/query

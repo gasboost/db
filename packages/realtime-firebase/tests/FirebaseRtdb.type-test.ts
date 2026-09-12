@@ -54,3 +54,17 @@ rtdb.users.scope({
   // @ts-expect-error unknown principal field
   storeId: "store-1",
 });
+
+const invalidPrimaryKeyUsers = {
+  name: "users",
+  schema: userSchema,
+  primaryKey: "missing",
+} as const;
+
+FirebaseRtdb.generate({
+  // @ts-expect-error primaryKey must be a key of the table schema
+  tables: [invalidPrimaryKeyUsers] as const,
+  principal: {
+    userId: "auth.uid",
+  },
+});

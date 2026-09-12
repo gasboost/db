@@ -16,6 +16,19 @@ export type FirebaseRtdbTableDefinition<
   readonly primaryKey: Extract<keyof T["schema"]["_output"], string>;
 };
 
+export type FirebaseRtdbValidatedTable<T extends FirebaseRtdbTableDefinition> =
+  T["primaryKey"] extends Extract<keyof T["schema"]["_output"], string>
+    ? T
+    : never;
+
+export type FirebaseRtdbValidatedTables<
+  T extends readonly FirebaseRtdbTableDefinition[],
+> = {
+  readonly [K in keyof T]: T[K] extends FirebaseRtdbTableDefinition
+    ? FirebaseRtdbValidatedTable<T[K]>
+    : never;
+};
+
 export type FirebaseRtdbRecord<T extends FirebaseRtdbTableDefinition> =
   T["schema"]["_output"];
 
@@ -23,7 +36,7 @@ export type FirebaseRtdbConfig<
   T extends readonly FirebaseRtdbTableDefinition[],
   P extends FirebaseRtdbPrincipalMapping,
 > = {
-  readonly tables: T;
+  readonly tables: T & FirebaseRtdbValidatedTables<T>;
   readonly rowLevelSecurity?: readonly RowLevelSecurity<T[number]>[];
   readonly principal: P;
 };

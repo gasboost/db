@@ -1,0 +1,49 @@
+{
+  "name": "@gasboost/realtime-firebase",
+  "version": "0.1.1",
+  "description": "Compile @gasboost/rls policies into Firebase Realtime Database Security Rules",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gasboost/db.git",
+    "directory": "packages/realtime-firebase"
+  },
+  "license": "MIT",
+  "author": "tiger-oshima",
+  "keywords": [
+    "firebase",
+    "firebase-realtime-database",
+    "realtime-database",
+    "security-rules",
+    "rls",
+    "row-level-security",
+    "authorization",
+    "typescript"
+  ],
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@gasboost/rls": "workspace:*",
+    "zod": "^4.5.4"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "pack": "pnpm pack"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

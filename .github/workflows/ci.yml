@@ -53,6 +53,19 @@ jobs:
       - name: Pack rls
         run: pnpm --filter @gasboost/rls pack
 
+      - name: Typecheck realtime-firebase
+        run: pnpm --filter @gasboost/realtime-firebase typecheck
+
+      - name: Test realtime-firebase
+        run: pnpm --filter @gasboost/realtime-firebase test
+
+      - name: Build realtime-firebase
+        run: pnpm --filter @gasboost/realtime-firebase build
+
+      - name: Pack realtime-firebase
+        working-directory: packages/realtime-firebase
+        run: pnpm pack
+
       - name: Typecheck replica
         run: pnpm --filter @gasboost/replica typecheck
 

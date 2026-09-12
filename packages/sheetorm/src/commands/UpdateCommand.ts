@@ -19,17 +19,27 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
 
   preview(exsist: SheetRecords): z.output<Z>[] {
     const uniqueValues = exsist.uniqueValues(this.table.getUniqueColumns());
-    const updatedRecords = this.records.map((record) => ({ ...record }));
+
+    const updatedRecords = this.records.map((record) => ({
+      ...record,
+    }));
 
     updatedRecords.forEach((record) => {
       this.table.validate(record);
+
       uniqueValues.forEach((uniqueMap, columnName) => {
         uniqueMap.delete(record[this.table.primaryKey as string]);
+
         const value = record[columnName];
-        if (value === null || value === undefined) return;
+
+        if (value === null || value === undefined) {
+          return;
+        }
+
         if (typeof value === "string" && value.trim().length === 0) {
           return;
         }
+
         for (const existing of uniqueMap.values()) {
           if (existing === value) {
             throw new Error(
@@ -37,21 +47,28 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
             );
           }
         }
+
         uniqueMap.set(
           record[this.table.primaryKey as string],
           record[columnName],
         );
       });
+
       if (this.table.hasOptimisticLock()) {
         const versionColumn = this.table.versionColumn as string;
+
         const previous = exsist.getRecord(
           record[this.table.primaryKey as string],
         );
+
         if (!previous) {
           throw new Error(
-            `Record with primary key ${record[this.table.primaryKey as string]} does not exist for optimistic locking.`,
+            `Record with primary key ${
+              record[this.table.primaryKey as string]
+            } does not exist for optimistic locking.`,
           );
         }
+
         const previousVersion = previous[versionColumn];
 
         if (record[versionColumn] !== previousVersion) {
@@ -61,8 +78,10 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
         }
 
         const currentRecord = record as Record<string, any>;
+
         currentRecord[versionColumn] = previousVersion + 1;
       }
+
       exsist.replace(record);
     });
 
@@ -71,16 +90,29 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
 
   public execute(exsist: SheetRecords): z.output<Z>[] {
     this.gateway.table(this.table.name, this.table.dbId);
+
     this.table.lock(this.Cache, this.Utilities);
 
-    const currentRecords = exsist.getValues();
+    try {
+      const currentRecords = exsist.getValues();
 
-    const updatedRecords = this.preview(exsist);
+      const updatedRecords = this.preview(exsist);
 
-    this.authorization.ensureUpdate(this.table, currentRecords, updatedRecords);
+      this.authorization.ensureUpdate(
+        this.table,
+        currentRecords,
+        updatedRecords,
+      );
 
-    this.gateway.rewrite(exsist.getValues(), currentRecords);
+      this.gateway.update(
+        updatedRecords,
+        exsist,
+        this.table.primaryKey as string,
+      );
 
-    return updatedRecords;
+      return updatedRecords;
+    } finally {
+      this.table.releaseLock();
+    }
   }
 }

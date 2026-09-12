@@ -1,689 +1,1063 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SheetRecords } from "../../src/core/SheetRecords";
 import { SheetGateway } from "../../src/gateway/SheetGateway";
 
-type RangeWrite = { row: number; col: number; values: any[][] };
+type SheetState = {
+  sheetId: number;
+  title: string;
+  values: any[][];
+  protectedRanges?: Array<{
+    protectedRangeId?: number;
+    description?: string;
+    range?: {
+      sheetId?: number;
+    };
+  }>;
+};
 
-class MockRange {
-  constructor(
-    private sheet: MockSheet,
-    private row: number,
-    private col: number,
-    private numRows: number,
-    private numCols: number,
-  ) {}
+type SpreadsheetState = {
+  sheets: SheetState[];
+};
 
-  getValues(): any[][] {
-    const values: any[][] = [];
-    for (let r = 0; r < this.numRows; r++) {
-      const rowValues: any[] = [];
-      for (let c = 0; c < this.numCols; c++) {
-        rowValues.push(this.sheet.getCell(this.row + r, this.col + c));
-      }
-      values.push(rowValues);
-    }
-    return values;
+function unquoteSheetName(value: string): string {
+  const match = value.match(/^'((?:[^']|'')+)'!/);
+
+  if (!match) {
+    throw new Error(`Invalid range: ${value}`);
   }
 
-  setValues(values: any[][]): void {
-    for (let r = 0; r < values.length; r++) {
-      for (let c = 0; c < values[r].length; c++) {
-        this.sheet.setCell(this.row + r, this.col + c, values[r][c]);
-      }
-    }
-    this.sheet.writes.push({ row: this.row, col: this.col, values });
-  }
-
-  clearContent(): void {
-    for (let r = 0; r < this.numRows; r++) {
-      for (let c = 0; c < this.numCols; c++) {
-        this.sheet.setCell(this.row + r, this.col + c, "");
-      }
-    }
-  }
-
-  getValue(): any {
-    return this.sheet.getCell(this.row, this.col);
-  }
+  return match[1].replace(/''/g, "'");
 }
 
-class MockSheet {
-  public writes: RangeWrite[] = [];
-  private data: any[][];
-  private protectedDescription = "";
+function columnToNumber(column: string): number {
+  let result = 0;
 
-  constructor(
-    private name: string,
-    data?: any[][],
-  ) {
-    this.data = data ? data.map((row) => [...row]) : [[]];
+  for (const character of column) {
+    result = result * 26 + character.charCodeAt(0) - 64;
   }
 
-  getName(): string {
-    return this.name;
-  }
+  return result;
+}
 
-  getLastRow(): number {
-    return this.data.length;
-  }
+function parseStartCell(range: string): {
+  row: number;
+  column: number;
+} {
+  const a1 = range.split("!")[1];
 
-  getLastColumn(): number {
-    return this.data[0]?.length ?? 0;
-  }
+  const match = a1.match(/^([A-Z]+)(\d+)/);
 
-  getRange(row: number, col: number, numRows = 1, numCols = 1): MockRange {
-    return new MockRange(this, row, col, numRows, numCols);
-  }
-
-  getCell(row: number, col: number): any {
-    const r = row - 1;
-    const c = col - 1;
-    if (!this.data[r]) return "";
-    return this.data[r][c] ?? "";
-  }
-
-  setCell(row: number, col: number, value: any): void {
-    const r = row - 1;
-    const c = col - 1;
-    while (this.data.length <= r) this.data.push([]);
-    while (this.data[r].length <= c) this.data[r].push("");
-    this.data[r][c] = value;
-  }
-
-  protect() {
+  if (!match) {
     return {
-      setDescription: (desc: string) => {
-        this.protectedDescription = desc;
-      },
+      row: 1,
+      column: 1,
     };
   }
 
-  getProtectedDescription(): string {
-    return this.protectedDescription;
-  }
+  return {
+    column: columnToNumber(match[1]),
+    row: Number(match[2]),
+  };
 }
 
-class MockSpreadsheet {
-  constructor(
-    private id: string,
-    private name: string,
-    private sheets: Map<string, MockSheet>,
-  ) {}
+function clone<T>(value: T): T {
+  return structuredClone(value);
+}
 
-  getId(): string {
-    return this.id;
-  }
+function createSheetsService(initial: Record<string, SpreadsheetState>) {
+  const spreadsheets = new Map<string, SpreadsheetState>(
+    Object.entries(initial).map(([id, spreadsheet]) => [
+      id,
+      clone(spreadsheet),
+    ]),
+  );
 
-  getName(): string {
-    return this.name;
-  }
+  const getSpreadsheet = (spreadsheetId: string) => {
+    const spreadsheet = spreadsheets.get(spreadsheetId);
 
-  getSheetByName(name: string): MockSheet | null {
-    return this.sheets.get(name) || null;
-  }
+    if (!spreadsheet) {
+      throw new Error(`Spreadsheet ${spreadsheetId} not found`);
+    }
 
-  insertSheet(name: string): MockSheet {
-    const sheet = new MockSheet(name, [[]]);
-    this.sheets.set(name, sheet);
+    return spreadsheet;
+  };
+
+  const getSheet = (spreadsheetId: string, rangeOrName: string) => {
+    const spreadsheet = getSpreadsheet(spreadsheetId);
+
+    const sheetName = rangeOrName.includes("!")
+      ? unquoteSheetName(rangeOrName)
+      : rangeOrName;
+
+    const sheet = spreadsheet.sheets.find(
+      (candidate) => candidate.title === sheetName,
+    );
+
+    if (!sheet) {
+      throw new Error(`Sheet ${sheetName} not found`);
+    }
+
     return sheet;
-  }
-}
+  };
 
-class MockSpreadsheetApp {
-  public flush = vi.fn();
-  constructor(
-    private active: MockSpreadsheet | null,
-    private byId: Map<string, MockSpreadsheet>,
-  ) {}
+  const valuesGet = vi.fn(
+    (spreadsheetId: string, range: string, _options?: unknown) => {
+      const sheet = getSheet(spreadsheetId, range);
 
-  getActive(): MockSpreadsheet {
-    if (!this.active) throw new Error("no active");
-    return this.active;
-  }
+      const a1 = range.split("!")[1];
 
-  openById(id: string): MockSpreadsheet {
-    const ss = this.byId.get(id);
-    if (!ss) throw new Error("missing");
-    return ss;
-  }
+      if (a1 === "1:1") {
+        return {
+          values: sheet.values.length > 0 ? [clone(sheet.values[0])] : [],
+        };
+      }
+
+      const columnMatch = a1.match(/^([A-Z]+)2:\1$/);
+
+      if (columnMatch) {
+        const columnIndex = columnToNumber(columnMatch[1]) - 1;
+
+        return {
+          values: sheet.values.slice(1).map((row) => [row[columnIndex]]),
+        };
+      }
+
+      return {
+        values: clone(sheet.values),
+      };
+    },
+  );
+
+  const batchGet = vi.fn(
+    (
+      spreadsheetId: string,
+      options: {
+        ranges: string[];
+      },
+    ) => {
+      return {
+        valueRanges: options.ranges.map((range) => ({
+          range,
+          values: clone(getSheet(spreadsheetId, range).values),
+        })),
+      };
+    },
+  );
+
+  const append = vi.fn(
+    (
+      resource: {
+        values?: any[][];
+      },
+      spreadsheetId: string,
+      range: string,
+      _options?: unknown,
+    ) => {
+      const sheet = getSheet(spreadsheetId, range);
+
+      sheet.values.push(...clone(resource.values ?? []));
+
+      return {};
+    },
+  );
+
+  const update = vi.fn(
+    (
+      resource: {
+        values?: any[][];
+      },
+      spreadsheetId: string,
+      range: string,
+      _options?: unknown,
+    ) => {
+      const sheet = getSheet(spreadsheetId, range);
+
+      const { row, column } = parseStartCell(range);
+
+      const values = resource.values ?? [];
+
+      values.forEach((sourceRow, rowOffset) => {
+        const targetRow = row - 1 + rowOffset;
+
+        while (sheet.values.length <= targetRow) {
+          sheet.values.push([]);
+        }
+
+        sourceRow.forEach((value, columnOffset) => {
+          const targetColumn = column - 1 + columnOffset;
+
+          while (sheet.values[targetRow].length <= targetColumn) {
+            sheet.values[targetRow].push("");
+          }
+
+          sheet.values[targetRow][targetColumn] = value;
+        });
+      });
+
+      return {};
+    },
+  );
+
+  const valuesBatchUpdate = vi.fn(
+    (
+      resource: {
+        data?: Array<{
+          range?: string;
+          values?: any[][];
+        }>;
+      },
+      spreadsheetId: string,
+    ) => {
+      for (const data of resource.data ?? []) {
+        if (!data.range) {
+          continue;
+        }
+
+        update(
+          {
+            values: data.values ?? [],
+          },
+          spreadsheetId,
+          data.range,
+          {
+            valueInputOption: "RAW",
+          },
+        );
+      }
+
+      return {};
+    },
+  );
+
+  const batchClear = vi.fn(
+    (
+      resource: {
+        ranges?: string[];
+      },
+      spreadsheetId: string,
+    ) => {
+      for (const range of resource.ranges ?? []) {
+        const sheet = getSheet(spreadsheetId, range);
+
+        const a1 = range.split("!")[1];
+
+        if (a1 === "1:1") {
+          if (sheet.values.length > 0) {
+            sheet.values[0] = [];
+          }
+
+          continue;
+        }
+
+        if (a1.startsWith("A2:")) {
+          sheet.values = sheet.values.length > 0 ? [sheet.values[0]] : [];
+        }
+      }
+
+      return {};
+    },
+  );
+
+  const spreadsheetsGet = vi.fn((spreadsheetId: string, _options?: unknown) => {
+    const spreadsheet = getSpreadsheet(spreadsheetId);
+
+    return {
+      sheets: spreadsheet.sheets.map((sheet) => ({
+        properties: {
+          sheetId: sheet.sheetId,
+          title: sheet.title,
+        },
+        protectedRanges: clone(sheet.protectedRanges ?? []),
+      })),
+    };
+  });
+
+  const spreadsheetsBatchUpdate = vi.fn(
+    (
+      resource: {
+        requests?: Array<{
+          addSheet?: {
+            properties?: {
+              title?: string;
+            };
+          };
+          deleteDimension?: {
+            range?: {
+              sheetId?: number;
+              dimension?: string;
+              startIndex?: number;
+              endIndex?: number;
+            };
+          };
+          addProtectedRange?: {
+            protectedRange?: {
+              description?: string;
+              range?: {
+                sheetId?: number;
+              };
+            };
+          };
+        }>;
+      },
+      spreadsheetId: string,
+    ) => {
+      const spreadsheet = getSpreadsheet(spreadsheetId);
+
+      const replies: any[] = [];
+
+      for (const request of resource.requests ?? []) {
+        if (request.addSheet) {
+          const title = request.addSheet.properties?.title;
+
+          if (!title) {
+            throw new Error("Sheet title is required");
+          }
+
+          const nextSheetId =
+            Math.max(0, ...spreadsheet.sheets.map((sheet) => sheet.sheetId)) +
+            1;
+
+          spreadsheet.sheets.push({
+            sheetId: nextSheetId,
+            title,
+            values: [],
+          });
+
+          replies.push({
+            addSheet: {
+              properties: {
+                sheetId: nextSheetId,
+                title,
+              },
+            },
+          });
+
+          continue;
+        }
+
+        if (request.deleteDimension) {
+          const range = request.deleteDimension.range;
+
+          const sheet = spreadsheet.sheets.find(
+            (candidate) => candidate.sheetId === range?.sheetId,
+          );
+
+          if (!sheet) {
+            throw new Error("Sheet not found");
+          }
+
+          const startIndex = range?.startIndex ?? 0;
+
+          const endIndex = range?.endIndex ?? startIndex;
+
+          sheet.values.splice(startIndex, endIndex - startIndex);
+
+          replies.push({});
+
+          continue;
+        }
+
+        if (request.addProtectedRange) {
+          const protectedRange = request.addProtectedRange.protectedRange;
+
+          const sheet = spreadsheet.sheets.find(
+            (candidate) => candidate.sheetId === protectedRange?.range?.sheetId,
+          );
+
+          if (!sheet) {
+            throw new Error("Sheet not found");
+          }
+
+          const ranges = (sheet.protectedRanges ??= []);
+
+          ranges.push({
+            protectedRangeId: ranges.length + 1,
+            description: protectedRange?.description,
+            range: clone(protectedRange?.range ?? {}),
+          });
+
+          replies.push({});
+        }
+      }
+
+      return {
+        replies,
+      };
+    },
+  );
+
+  const service = {
+    Spreadsheets: {
+      get: spreadsheetsGet,
+      batchUpdate: spreadsheetsBatchUpdate,
+      Values: {
+        get: valuesGet,
+        batchGet,
+        append,
+        update,
+        batchUpdate: valuesBatchUpdate,
+        batchClear,
+      },
+    },
+  };
+
+  return {
+    service,
+    spreadsheets,
+    mocks: {
+      spreadsheetsGet,
+      spreadsheetsBatchUpdate,
+      valuesGet,
+      batchGet,
+      append,
+      update,
+      valuesBatchUpdate,
+      batchClear,
+    },
+  };
 }
 
 describe("SheetGateway", () => {
-  it("throws when active spreadsheet is missing", () => {
-    const app = new MockSpreadsheetApp(null, new Map());
-    const gateway = new SheetGateway(app as any);
-    expect(() => gateway.table("users", null)).toThrow(
-      "Active spreadsheet not found",
-    );
+  let fixture: ReturnType<typeof createSheetsService>;
+
+  beforeEach(() => {
+    fixture = createSheetsService({
+      db1: {
+        sheets: [
+          {
+            sheetId: 10,
+            title: "users",
+            values: [
+              ["id", "name", "email"],
+              [1, "Alice", "a@example.com"],
+              [2, "Bob", "b@example.com"],
+              [3, "Carol", "c@example.com"],
+            ],
+          },
+          {
+            sheetId: 20,
+            title: "orders",
+            values: [
+              ["id", "userId"],
+              [100, 1],
+              [101, 2],
+            ],
+          },
+        ],
+      },
+      db2: {
+        sheets: [
+          {
+            sheetId: 30,
+            title: "products",
+            values: [
+              ["id", "name"],
+              [1, "Book"],
+            ],
+          },
+        ],
+      },
+    });
   });
 
-  it("throws when spreadsheet id is missing", () => {
-    const app = new MockSpreadsheetApp(null, new Map());
-    const gateway = new SheetGateway(app as any);
-    expect(() => gateway.table("users", "missing")).toThrow(
-      "Spreadsheet with ID missing not found",
-    );
-  });
+  it("reads records with batchGet", () => {
+    const gateway = new SheetGateway(fixture.service as any);
 
-  it("throws when sheet is missing", () => {
-    const spreadsheet = new MockSpreadsheet("id", "Book", new Map());
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-    expect(() => gateway.table("users", null)).toThrow(
-      "Sheet users not found in spreadsheet Book",
-    );
-  });
+    gateway.table("users", "db1");
 
-  it("reads and writes rows", () => {
-    const sheet = new MockSheet("users", [
-      ["id", "name"],
-      [1, "A"],
-    ]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    expect(gateway.read()).toEqual([{ id: 1, name: "A" }]);
-
-    gateway.insert([{ id: 2, name: "B" }]);
     expect(gateway.read()).toEqual([
-      { id: 1, name: "A" },
-      { id: 2, name: "B" },
+      {
+        id: 1,
+        name: "Alice",
+        email: "a@example.com",
+      },
+      {
+        id: 2,
+        name: "Bob",
+        email: "b@example.com",
+      },
+      {
+        id: 3,
+        name: "Carol",
+        email: "c@example.com",
+      },
     ]);
-    expect(app.flush).toHaveBeenCalled();
+
+    expect(fixture.mocks.batchGet).toHaveBeenCalledTimes(1);
+
+    expect(fixture.mocks.batchGet).toHaveBeenCalledWith("db1", {
+      ranges: ["'users'!A:ZZZ"],
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
   });
 
-  it("reuses cached spreadsheet instance", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("returns empty records when sheet has only headers", () => {
+    fixture.spreadsheets.get("db1")!.sheets[0].values = [["id", "name"]];
 
-    gateway.table("users", "id");
-    gateway.table("users", "id");
+    const gateway = new SheetGateway(fixture.service as any);
 
-    expect(gateway.read()).toEqual([{ id: 1 }]);
+    gateway.table("users", "db1");
+
+    expect(gateway.read()).toEqual([]);
   });
 
-  it("avoids refetching sheet when cached", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const getSheetSpy = vi
-      .spyOn(spreadsheet, "getSheetByName")
-      .mockReturnValue(sheet);
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("returns empty records when values are empty", () => {
+    fixture.spreadsheets.get("db1")!.sheets[0].values = [];
 
-    gateway.table("users", "id");
-    gateway.table("users", "id");
+    const gateway = new SheetGateway(fixture.service as any);
 
-    expect(getSheetSpy).toHaveBeenCalledTimes(1);
+    gateway.table("users", "db1");
+
+    expect(gateway.read()).toEqual([]);
   });
 
-  it("caches sheets for active spreadsheet", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("fills missing trailing cells with empty string", () => {
+    fixture.spreadsheets.get("db1")!.sheets[0].values = [
+      ["id", "name", "email"],
+      [1, "Alice"],
+    ];
 
-    gateway.table("users", null);
-    gateway.table("users", null);
+    const gateway = new SheetGateway(fixture.service as any);
 
-    expect(gateway.read()).toEqual([{ id: 1 }]);
-  });
+    gateway.table("users", "db1");
 
-  it("handles empty active spreadsheet id", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(spreadsheet, new Map());
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", "");
-
-    expect(gateway.read()).toEqual([{ id: 1 }]);
-  });
-
-  it("caches sheet instances on first access", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const sheets = new Map<string, MockSheet>();
-    const spreadsheets = new Map<string, MockSpreadsheet>();
-    const gateway = new SheetGateway(
-      app as any,
-      spreadsheets as any,
-      sheets as any,
-    );
-
-    gateway.table("users", "id");
-    expect(sheets.has("id:users")).toBe(true);
-  });
-
-  it("uses cached sheet entries without fetching", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const sheets = new Map<string, MockSheet>([["id:users", sheet]]);
-    const spreadsheets = new Map<string, MockSpreadsheet>([
-      ["id", spreadsheet],
+    expect(gateway.read()).toEqual([
+      {
+        id: 1,
+        name: "Alice",
+        email: "",
+      },
     ]);
-    const gateway = new SheetGateway(
-      app as any,
-      spreadsheets as any,
-      sheets as any,
-    );
-
-    gateway.table("users", "id");
-    expect(gateway.read()).toEqual([{ id: 1 }]);
   });
 
-  it("uses cached spreadsheet map and caches sheet", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(null, new Map([["id", spreadsheet]]));
-    const spreadsheets = new Map<string, MockSpreadsheet>([
-      ["id", spreadsheet],
+  it("reads multiple tables in one batchGet per spreadsheet", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    const result = gateway.readMany([
+      {
+        dbId: "db1",
+        sheetName: "users",
+      },
+      {
+        dbId: "db1",
+        sheetName: "orders",
+      },
     ]);
-    const sheets = new Map<string, MockSheet>();
-    const openByIdSpy = vi.spyOn(app, "openById");
-    const gateway = new SheetGateway(
-      app as any,
-      spreadsheets as any,
-      sheets as any,
-    );
 
-    gateway.table("users", "id");
+    expect(fixture.mocks.batchGet).toHaveBeenCalledTimes(1);
 
-    expect(openByIdSpy).not.toHaveBeenCalled();
-    expect(sheets.has("id:users")).toBe(true);
-    expect(gateway.read()).toEqual([{ id: 1 }]);
+    expect(fixture.mocks.batchGet).toHaveBeenCalledWith("db1", {
+      ranges: ["'users'!A:ZZZ", "'orders'!A:ZZZ"],
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+
+    expect(result.get("db1:users")).toHaveLength(3);
+
+    expect(result.get("db1:orders")).toEqual([
+      {
+        id: 100,
+        userId: 1,
+      },
+      {
+        id: 101,
+        userId: 2,
+      },
+    ]);
   });
 
-  it("handles lastId and count", () => {
-    const sheet = new MockSheet("users", [["id"], [1], [3]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("uses separate batchGet calls for different spreadsheets", () => {
+    const gateway = new SheetGateway(fixture.service as any);
 
-    gateway.table("users", null);
-    expect(gateway.count()).toBe(2);
-    expect(gateway.lastId("id")).toBe(3);
+    const result = gateway.readMany([
+      {
+        dbId: "db1",
+        sheetName: "users",
+      },
+      {
+        dbId: "db2",
+        sheetName: "products",
+      },
+    ]);
+
+    expect(fixture.mocks.batchGet).toHaveBeenCalledTimes(2);
+
+    expect(result.get("db2:products")).toEqual([
+      {
+        id: 1,
+        name: "Book",
+      },
+    ]);
   });
 
-  it("returns 0 count when only headers exist", () => {
-    const sheet = new MockSheet("users", [["id"]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("appends only inserted records", () => {
+    const gateway = new SheetGateway(fixture.service as any);
 
-    gateway.table("users", null);
+    gateway.table("users", "db1");
+
+    gateway.read();
+
+    gateway.insert([
+      {
+        id: 4,
+        name: "Dave",
+        email: "d@example.com",
+      },
+    ]);
+
+    expect(fixture.mocks.append).toHaveBeenCalledTimes(1);
+
+    expect(fixture.mocks.append).toHaveBeenCalledWith(
+      {
+        values: [[4, "Dave", "d@example.com"]],
+      },
+      "db1",
+      "'users'!A1:C",
+      {
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+      },
+    );
+
+    expect(gateway.read()).toContainEqual({
+      id: 4,
+      name: "Dave",
+      email: "d@example.com",
+    });
+  });
+
+  it("does not call append for empty inserts", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    gateway.insert([]);
+
+    expect(fixture.mocks.append).not.toHaveBeenCalled();
+  });
+
+  it("throws when insert has no headers", () => {
+    fixture.spreadsheets.get("db1")!.sheets[0].values = [];
+
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    expect(() =>
+      gateway.insert([
+        {
+          id: 1,
+        },
+      ]),
+    ).toThrow("Not set table columns yet.");
+  });
+
+  it("updates only target rows with one values batchUpdate", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    const current = gateway.read();
+
+    const records = new SheetRecords(current, "id");
+
+    gateway.update(
+      [
+        {
+          id: 2,
+          name: "Bobby",
+          email: "new@example.com",
+        },
+        {
+          id: 3,
+          name: "Caroline",
+          email: "caroline@example.com",
+        },
+      ],
+      records,
+      "id",
+    );
+
+    expect(fixture.mocks.valuesBatchUpdate).toHaveBeenCalledTimes(1);
+
+    expect(fixture.mocks.valuesBatchUpdate).toHaveBeenCalledWith(
+      {
+        valueInputOption: "RAW",
+        data: [
+          {
+            range: "'users'!A3:C3",
+            values: [[2, "Bobby", "new@example.com"]],
+          },
+          {
+            range: "'users'!A4:C4",
+            values: [[3, "Caroline", "caroline@example.com"]],
+          },
+        ],
+      },
+      "db1",
+    );
+
+    expect(gateway.read()).toEqual([
+      {
+        id: 1,
+        name: "Alice",
+        email: "a@example.com",
+      },
+      {
+        id: 2,
+        name: "Bobby",
+        email: "new@example.com",
+      },
+      {
+        id: 3,
+        name: "Caroline",
+        email: "caroline@example.com",
+      },
+    ]);
+  });
+
+  it("falls back to primary-key lookup when row number is unavailable", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    gateway.read();
+
+    const current = new SheetRecords(
+      [
+        {
+          id: 99,
+          name: "Missing",
+          email: "",
+        },
+      ],
+      "id",
+    );
+
+    gateway.update(
+      [
+        {
+          id: 2,
+          name: "Bobby",
+          email: "b@example.com",
+        },
+      ],
+      current,
+      "id",
+    );
+
+    expect(fixture.mocks.valuesGet).toHaveBeenCalledWith(
+      "db1",
+      "'users'!A2:A",
+      {
+        valueRenderOption: "UNFORMATTED_VALUE",
+      },
+    );
+  });
+
+  it("throws when update target does not exist", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    gateway.read();
+
+    const current = new SheetRecords([], "id");
+
+    expect(() =>
+      gateway.update(
+        [
+          {
+            id: 999,
+            name: "Nobody",
+            email: "",
+          },
+        ],
+        current,
+        "id",
+      ),
+    ).toThrow("Record with primary key '999' not found.");
+  });
+
+  it("deletes rows in descending row order", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    const current = gateway.read();
+
+    const records = new SheetRecords(current, "id");
+
+    gateway.delete([1, 3], records, "id");
+
+    expect(fixture.mocks.spreadsheetsBatchUpdate).toHaveBeenCalledWith(
+      {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId: 10,
+                dimension: "ROWS",
+                startIndex: 3,
+                endIndex: 4,
+              },
+            },
+          },
+          {
+            deleteDimension: {
+              range: {
+                sheetId: 10,
+                dimension: "ROWS",
+                startIndex: 1,
+                endIndex: 2,
+              },
+            },
+          },
+        ],
+      },
+      "db1",
+    );
+
+    expect(gateway.read()).toEqual([
+      {
+        id: 2,
+        name: "Bob",
+        email: "b@example.com",
+      },
+    ]);
+  });
+
+  it("does nothing when delete targets are empty", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    gateway.delete([], new SheetRecords([], "id"), "id");
+
+    expect(fixture.mocks.spreadsheetsBatchUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rewrites all body records", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    gateway.read();
+
+    gateway.rewrite([
+      {
+        id: 10,
+        name: "X",
+        email: "x@example.com",
+      },
+      {
+        id: 11,
+        name: "Y",
+        email: "y@example.com",
+      },
+    ]);
+
+    expect(fixture.mocks.batchClear).toHaveBeenCalledWith(
+      {
+        ranges: ["'users'!A2:C"],
+      },
+      "db1",
+    );
+
+    expect(gateway.read()).toEqual([
+      {
+        id: 10,
+        name: "X",
+        email: "x@example.com",
+      },
+      {
+        id: 11,
+        name: "Y",
+        email: "y@example.com",
+      },
+    ]);
+  });
+
+  it("clears body when rewrite data is empty", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    gateway.read();
+
+    gateway.rewrite([]);
+
+    expect(gateway.read()).toEqual([]);
+  });
+
+  it("restores previous records when rewrite fails", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    gateway.read();
+
+    const original = gateway.read();
+
+    fixture.mocks.update.mockImplementationOnce(() => {
+      throw new Error("fail");
+    });
+
+    expect(() =>
+      gateway.rewrite(
+        [
+          {
+            id: 9,
+            name: "Broken",
+            email: "",
+          },
+        ],
+        original,
+      ),
+    ).toThrow("fail");
+
+    expect(gateway.read()).toEqual(original);
+  });
+
+  it("returns count from records", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    expect(gateway.count()).toBe(3);
+  });
+
+  it("returns zero count for header-only sheet", () => {
+    fixture.spreadsheets.get("db1")!.sheets[0].values = [["id"]];
+
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
     expect(gateway.count()).toBe(0);
   });
 
-  it("returns 0 when lastRow < 2", () => {
-    const sheet = new MockSheet("users", [["id"]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("returns last numeric id", () => {
+    const gateway = new SheetGateway(fixture.service as any);
 
-    gateway.table("users", null);
+    gateway.table("users", "db1");
+
+    expect(gateway.lastId("id")).toBe(3);
+  });
+
+  it("returns zero lastId for empty body", () => {
+    fixture.spreadsheets.get("db1")!.sheets[0].values = [["id"]];
+
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
     expect(gateway.lastId("id")).toBe(0);
   });
 
-  it("throws when pk column is missing or non-number", () => {
-    const sheet = new MockSheet("users", [["id"], ["x"]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("throws when lastId is not numeric", () => {
+    fixture.spreadsheets.get("db1")!.sheets[0].values = [["id"], ["abc"]];
 
-    gateway.table("users", null);
-    expect(() => gateway.lastId("missing")).toThrow(
-      "Primary key column missing not found",
-    );
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
     expect(() => gateway.lastId("id")).toThrow("Last ID is not a number");
   });
 
-  it("handles insert with no columns", () => {
-    const sheet = new MockSheet("users", [[]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("overwrites existing headers with setColumns", () => {
+    const gateway = new SheetGateway(fixture.service as any);
 
-    gateway.table("users", null);
-    expect(() => gateway.insert([{ id: 1 }])).toThrow(
-      "Not set table columns yet.",
+    gateway.setColumns("db1", "users", ["id", "displayName"]);
+
+    expect(
+      fixture.spreadsheets
+        .get("db1")!
+        .sheets.find((sheet) => sheet.title === "users")!.values[0],
+    ).toEqual(["id", "displayName"]);
+  });
+
+  it("creates missing sheet with setColumns", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.setColumns("db1", "logs", ["id", "message"]);
+
+    const sheet = fixture.spreadsheets
+      .get("db1")!
+      .sheets.find((candidate) => candidate.title === "logs");
+
+    expect(sheet).toBeDefined();
+
+    expect(sheet?.values[0]).toEqual(["id", "message"]);
+
+    expect(fixture.mocks.spreadsheetsBatchUpdate).toHaveBeenCalledWith(
+      {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: "logs",
+              },
+            },
+          },
+        ],
+      },
+      "db1",
     );
   });
 
-  it("returns empty when no data rows exist", () => {
-    const sheet = new MockSheet("users", [["id"]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
+  it("protects a sheet with addProtectedRange", () => {
+    const gateway = new SheetGateway(fixture.service as any);
 
-    gateway.table("users", null);
-    expect(gateway.read()).toEqual([]);
-  });
+    gateway.table("users", "db1");
 
-  it("skips insert when data is empty", () => {
-    const sheet = new MockSheet("users", [["id"]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    gateway.insert([]);
-    expect(gateway.read()).toEqual([]);
-  });
-
-  it("rewrites and restores on failure", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    const originalSetValues = MockRange.prototype.setValues;
-    let shouldThrow = true;
-    MockRange.prototype.setValues = function (values: any[][]): void {
-      if (shouldThrow && (this as any).row === 2 && (this as any).col === 1) {
-        shouldThrow = false;
-        throw new Error("fail");
-      }
-      return originalSetValues.call(this, values);
-    };
-
-    expect(() => gateway.rewrite([{ id: 2 }])).toThrow("fail");
-
-    MockRange.prototype.setValues = originalSetValues;
-    expect(gateway.read()).toEqual([{ id: 1 }]);
-  });
-
-  it("rewrites data successfully", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    gateway.rewrite([{ id: 2 }]);
-
-    expect(gateway.read()).toEqual([{ id: 2 }]);
-  });
-
-  it("rewrites and restores using previous records", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    const originalSetValues = MockRange.prototype.setValues;
-    let shouldThrow = true;
-    MockRange.prototype.setValues = function (values: any[][]): void {
-      if (shouldThrow && (this as any).row === 2 && (this as any).col === 1) {
-        shouldThrow = false;
-        throw new Error("fail");
-      }
-      return originalSetValues.call(this, values);
-    };
-
-    expect(() => gateway.rewrite([{ id: 2 }], [{ id: 1 }])).toThrow("fail");
-
-    MockRange.prototype.setValues = originalSetValues;
-    expect(gateway.read()).toEqual([{ id: 1 }]);
-  });
-
-  it("skips restore when previous records are empty", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    const originalSetValues = MockRange.prototype.setValues;
-    let shouldThrow = true;
-    MockRange.prototype.setValues = function (values: any[][]): void {
-      if (shouldThrow && (this as any).row === 2 && (this as any).col === 1) {
-        shouldThrow = false;
-        throw new Error("fail");
-      }
-      return originalSetValues.call(this, values);
-    };
-
-    expect(() => gateway.rewrite([{ id: 2 }], [])).toThrow("fail");
-
-    MockRange.prototype.setValues = originalSetValues;
-    expect(gateway.read()).toEqual([{ id: "" }]);
-  });
-
-  it("clears rows when rewrite data is empty", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    gateway.rewrite([]);
-
-    expect(gateway.read()).toEqual([{ id: "" }]);
-  });
-
-  it("throws when rewrite has no columns", () => {
-    const sheet = new MockSheet("users", [[], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    expect(() => gateway.rewrite([{ id: 1 }])).toThrow(
-      "Not set table columns yet.",
-    );
-  });
-
-  it("skips rewrite when only headers exist", () => {
-    const sheet = new MockSheet("users", [["id"]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
-    gateway.rewrite([{ id: 1 }]);
-    expect(gateway.read()).toEqual([]);
-  });
-
-  it("setColumns creates or overwrites headers", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.setColumns("id", "users", ["id", "name"]);
-    gateway.table("users", "id");
-    expect(gateway.read()).toEqual([{ id: 1, name: "" }]);
-
-    const spreadsheet2 = new MockSpreadsheet("id2", "Book2", new Map());
-    const app2 = new MockSpreadsheetApp(null, new Map([["id2", spreadsheet2]]));
-    const gateway2 = new SheetGateway(app2 as any);
-
-    gateway2.setColumns("id2", "newSheet", ["id"]);
-    gateway2.table("newSheet", "id2");
-    expect(gateway2.read()).toEqual([]);
-  });
-
-  it("protects sheet", () => {
-    const sheet = new MockSheet("users", [["id"], [1]]);
-    const spreadsheet = new MockSpreadsheet(
-      "id",
-      "Book",
-      new Map([["users", sheet]]),
-    );
-    const app = new MockSpreadsheetApp(
-      spreadsheet,
-      new Map([["id", spreadsheet]]),
-    );
-    const gateway = new SheetGateway(app as any);
-
-    gateway.table("users", null);
     gateway.protect();
-    expect(sheet.getProtectedDescription()).toBe("Protected by SheetGateway");
+
+    const users = fixture.spreadsheets
+      .get("db1")!
+      .sheets.find((sheet) => sheet.title === "users")!;
+
+    expect(users.protectedRanges).toEqual([
+      {
+        protectedRangeId: 1,
+        description: "Protected by SheetGateway",
+        range: {
+          sheetId: 10,
+        },
+      },
+    ]);
+  });
+
+  it("does not create duplicate protected ranges", () => {
+    const users = fixture.spreadsheets
+      .get("db1")!
+      .sheets.find((sheet) => sheet.title === "users")!;
+
+    users.protectedRanges = [
+      {
+        protectedRangeId: 1,
+        description: "Protected by SheetGateway",
+        range: {
+          sheetId: 10,
+        },
+      },
+    ];
+
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("users", "db1");
+
+    gateway.protect();
+
+    expect(fixture.mocks.spreadsheetsBatchUpdate).not.toHaveBeenCalled();
+  });
+
+  it("throws when protecting a missing sheet", () => {
+    const gateway = new SheetGateway(fixture.service as any);
+
+    gateway.table("missing", "db1");
+
+    expect(() => gateway.protect()).toThrow(
+      "Sheet missing not found in spreadsheet db1",
+    );
   });
 });

@@ -1,175 +1,561 @@
-import { AccessableDataStore } from "./AccessableDataStore";
+import { SheetRecords } from "../core/SheetRecords";
+import { AccessableDataStore, DataStoreTable } from "./AccessableDataStore";
+
+type SheetProperties = {
+  sheetId: number;
+  title: string;
+};
 
 export class SheetGateway implements AccessableDataStore {
-    private _table!: GoogleAppsScript.Spreadsheet.Sheet;
+  private spreadsheetId!: string;
+  private sheetName!: string;
 
-    constructor(
-        private dataStore: GoogleAppsScript.Spreadsheet.SpreadsheetApp,
-        private spreadsheets: Map<
-            string,
-            GoogleAppsScript.Spreadsheet.Spreadsheet
-        > = new Map(),
-        private sheets: Map<
-            string,
-            GoogleAppsScript.Spreadsheet.Sheet
-        > = new Map(),
-    ) {}
+  private readonly sheetProperties = new Map<string, SheetProperties>();
+  private readonly headers = new Map<string, string[]>();
 
-    public table(tableName: string, ssId: string | null) {
-        let ss: GoogleAppsScript.Spreadsheet.Spreadsheet;
-        let activeSsId = ssId;
-        if (!ssId) {
-            try {
-                ss = this.dataStore.getActive();
-                activeSsId = ss.getId();
-                this.spreadsheets.set(activeSsId, ss);
-            } catch {
-                throw new Error(`Active spreadsheet not found`);
-            }
-        } else if (!this.spreadsheets.has(ssId)) {
-            try {
-                ss = this.dataStore.openById(ssId);
-                this.spreadsheets.set(ssId, ss);
-            } catch {
-                throw new Error(`Spreadsheet with ID ${ssId} not found`);
-            }
-        } else {
-            ss = this.spreadsheets.get(ssId)!;
-        }
+  constructor(private readonly sheets: GoogleAppsScript.Sheets) {}
 
-        // シートを取得
-        if (!this.sheets.has(`${activeSsId || ssId}:${tableName}`)) {
-            const sheet = ss.getSheetByName(tableName);
-            if (!sheet) {
-                throw new Error(
-                    `Sheet ${tableName} not found in spreadsheet ${ss.getName()}`,
-                );
-            }
-            this.sheets.set(`${activeSsId || ssId}:${tableName}`, sheet);
-            this._table = sheet;
-        }
-        this._table = this.sheets.get(`${activeSsId || ssId}:${tableName}`)!;
+  public table(sheetName: string, dbId: string): void {
+    this.spreadsheetId = dbId;
+    this.sheetName = sheetName;
+  }
+
+  public read(): Record<string, any>[] {
+    const response = this.sheets.Spreadsheets.Values.batchGet(
+      this.spreadsheetId,
+      {
+        ranges: [this.tableRange(this.sheetName)],
+        valueRenderOption: "UNFORMATTED_VALUE",
+      },
+    );
+
+    const values = response.valueRanges?.[0]?.values ?? [];
+
+    return this.toRecords(values, this.tableKey());
+  }
+
+  public readMany(
+    tables: readonly DataStoreTable[],
+  ): Map<string, Record<string, any>[]> {
+    const result = new Map<string, Record<string, any>[]>();
+
+    const grouped = new Map<string, DataStoreTable[]>();
+
+    for (const table of tables) {
+      const current = grouped.get(table.dbId) ?? [];
+
+      current.push(table);
+
+      grouped.set(table.dbId, current);
     }
 
-    public lastId(pkColumn: string): any {
-        const lastRow = this._table.getLastRow();
-        if (lastRow < 2) {
-            return 0;
-        }
-        const pkColumnIndex =
-            this._table
-                .getRange(1, 1, 1, this._table.getLastColumn())
-                .getValues()[0]
-                .indexOf(pkColumn) + 1;
-        if (pkColumnIndex === 0) {
-            throw new Error(`Primary key column ${pkColumn} not found`);
-        }
-        const lastId = this._table.getRange(lastRow, pkColumnIndex).getValue();
-        if (typeof lastId !== "number")
-            throw new Error(`Last ID is not a number`);
-        return lastId;
+    for (const [dbId, dbTables] of grouped.entries()) {
+      const response = this.sheets.Spreadsheets.Values.batchGet(dbId, {
+        ranges: dbTables.map((table) => this.tableRange(table.sheetName)),
+        valueRenderOption: "UNFORMATTED_VALUE",
+      });
+
+      const valueRanges = response.valueRanges ?? [];
+
+      dbTables.forEach((table, index) => {
+        const key = this.tableKey(dbId, table.sheetName);
+        const values = valueRanges[index]?.values ?? [];
+
+        result.set(key, this.toRecords(values, key));
+      });
     }
 
-    read(): Record<string, any>[] {
-        const lastRow = this._table.getLastRow();
-        if (lastRow < 2) return [];
-        const lastColumn = this._table.getLastColumn();
-        const values = this._table
-            .getRange(2, 1, lastRow - 1, lastColumn)
-            .getValues();
-        const columns = this._table
-            .getRange(1, 1, 1, lastColumn)
-            .getValues()[0];
-        return values.map((row) => {
-            const record: Record<string, any> = {};
-            columns.forEach((col, index) => {
-                record[col] = row[index];
-            });
-            return record;
-        });
+    return result;
+  }
+
+  public insert(records: Record<string, any>[]): void {
+    if (records.length === 0) {
+      return;
     }
 
-    insert(data: Record<string, any>[]): void {
-        if (data.length === 0) return;
-        const startRow = this._table.getLastRow() + 1;
-        const columns = this._table.getLastColumn();
-        if (columns === 0) throw new Error("Not set table columns yet.");
-        const headers = this._table.getRange(1, 1, 1, columns).getValues()[0];
-        const dataValues = data.map((record) =>
-            headers.map((col) => record[col]),
+    const headers = this.getHeaders();
+
+    if (headers.length === 0) {
+      throw new Error("Not set table columns yet.");
+    }
+
+    const lastColumn = this.columnName(headers.length);
+
+    this.sheets.Spreadsheets.Values.append(
+      {
+        values: records.map((record) =>
+          headers.map((header) => this.toSheetValue(record[header])),
+        ),
+      },
+      this.spreadsheetId,
+      `${this.quotedSheetName()}!A1:${lastColumn}`,
+      {
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+      },
+    );
+  }
+
+  public update(
+    records: Record<string, any>[],
+    currentRecords: SheetRecords,
+    primaryKey: string,
+  ): void {
+    if (records.length === 0) {
+      return;
+    }
+
+    const headers = this.getHeaders();
+
+    if (headers.length === 0) {
+      throw new Error("Not set table columns yet.");
+    }
+
+    const lastColumn = this.columnName(headers.length);
+
+    const data = records.map((record) => {
+      const primaryKeyValue = record[primaryKey];
+
+      let rowNumber = currentRecords.getRowNumber(primaryKeyValue);
+
+      if (rowNumber === null) {
+        rowNumber = this.findRowNumber(primaryKey, primaryKeyValue);
+      }
+
+      if (rowNumber === null) {
+        throw new Error(
+          `Record with primary key '${String(primaryKeyValue)}' not found.`,
         );
-        this._table
-            .getRange(startRow, 1, data.length, columns)
-            .setValues(dataValues);
-        this.dataStore.flush();
+      }
+
+      return {
+        range: `${this.quotedSheetName()}!A${rowNumber}:${lastColumn}${rowNumber}`,
+        values: [headers.map((header) => this.toSheetValue(record[header]))],
+      };
+    });
+
+    this.sheets.Spreadsheets.Values.batchUpdate(
+      {
+        valueInputOption: "RAW",
+        data,
+      },
+      this.spreadsheetId,
+    );
+  }
+
+  public delete(
+    primaryKeyValues: readonly unknown[],
+    currentRecords: SheetRecords,
+    primaryKey: string,
+  ): void {
+    if (primaryKeyValues.length === 0) {
+      return;
     }
 
-    rewrite(
-        data: Record<string, any>[],
-        previousRecords?: Record<string, any>[],
-    ): void {
-        const lastRow = this._table.getLastRow();
-        if (lastRow <= 1) return;
-        const lastColumn = this._table.getLastColumn();
-        let headers: any[] | null = null;
-        const getHeaders = () => {
-            if (!headers) {
-                if (lastColumn === 0) {
-                    throw new Error("Not set table columns yet.");
-                }
-                headers = this._table
-                    .getRange(1, 1, 1, lastColumn)
-                    .getValues()[0];
-            }
-            return headers;
-        };
+    const properties = this.getSheetProperties(
+      this.spreadsheetId,
+      this.sheetName,
+    );
 
-        const previousValues = previousRecords
-            ? previousRecords.map((record) =>
-                  getHeaders().map((col) => record[col]),
-              )
-            : this._table.getRange(2, 1, lastRow - 1, lastColumn).getValues();
-        try {
-            this._table.getRange(2, 1, lastRow - 1, lastColumn).clearContent();
-            if (data.length === 0) return;
-            const dataValues = data.map((record) =>
-                getHeaders().map((col) => record[col]),
-            );
-            this._table
-                .getRange(2, 1, data.length, lastColumn)
-                .setValues(dataValues);
-            this.dataStore.flush();
-        } catch (e) {
-            if (previousValues.length > 0) {
-                this._table
-                    .getRange(2, 1, previousValues.length, lastColumn)
-                    .setValues(previousValues);
-            }
-            throw e;
+    const rowNumbers = primaryKeyValues
+      .map((primaryKeyValue) => {
+        const knownRowNumber = currentRecords.getRowNumber(primaryKeyValue);
+
+        if (knownRowNumber !== null) {
+          return knownRowNumber;
         }
+
+        return this.findRowNumber(primaryKey, primaryKeyValue);
+      })
+      .filter((rowNumber): rowNumber is number => rowNumber !== null)
+      .sort((left, right) => right - left);
+
+    if (rowNumbers.length === 0) {
+      return;
     }
 
-    setColumns(dbId: string, sheetName: string, columns: string[]): void {
-        const ss = this.dataStore.openById(dbId);
-        const table = ss.getSheetByName(sheetName);
-        if (!table) {
-            this._table = ss.insertSheet(sheetName);
-        } else {
-            this._table = table;
-        }
-        const lastColumn = this._table.getLastColumn();
-        if (lastColumn > 0) {
-            this._table.getRange(1, 1, 1, lastColumn).clearContent();
-        }
-        this._table.getRange(1, 1, 1, columns.length).setValues([columns]);
+    this.sheets.Spreadsheets.batchUpdate(
+      {
+        requests: rowNumbers.map((rowNumber) => ({
+          deleteDimension: {
+            range: {
+              sheetId: properties.sheetId,
+              dimension: "ROWS",
+              startIndex: rowNumber - 1,
+              endIndex: rowNumber,
+            },
+          },
+        })),
+      },
+      this.spreadsheetId,
+    );
+  }
+
+  public rewrite(
+    records: Record<string, any>[],
+    previousRecords?: Record<string, any>[],
+  ): void {
+    const headers = this.getHeaders();
+
+    if (headers.length === 0) {
+      throw new Error("Not set table columns yet.");
     }
 
-    count() {
-        const lastRow = this._table.getLastRow();
-        return lastRow > 1 ? lastRow - 1 : 0;
+    const lastColumn = this.columnName(headers.length);
+    const bodyRange = `${this.quotedSheetName()}!A2:${lastColumn}`;
+
+    const previous = previousRecords ?? this.read();
+
+    try {
+      this.sheets.Spreadsheets.Values.batchClear(
+        {
+          ranges: [bodyRange],
+        },
+        this.spreadsheetId,
+      );
+
+      if (records.length === 0) {
+        return;
+      }
+
+      this.sheets.Spreadsheets.Values.update(
+        {
+          values: records.map((record) =>
+            headers.map((header) => this.toSheetValue(record[header])),
+          ),
+        },
+        this.spreadsheetId,
+        `${this.quotedSheetName()}!A2:${lastColumn}${records.length + 1}`,
+        {
+          valueInputOption: "RAW",
+        },
+      );
+    } catch (error) {
+      this.sheets.Spreadsheets.Values.batchClear(
+        {
+          ranges: [bodyRange],
+        },
+        this.spreadsheetId,
+      );
+
+      if (previous.length > 0) {
+        this.sheets.Spreadsheets.Values.update(
+          {
+            values: previous.map((record) =>
+              headers.map((header) => this.toSheetValue(record[header])),
+            ),
+          },
+          this.spreadsheetId,
+          `${this.quotedSheetName()}!A2:${lastColumn}${previous.length + 1}`,
+          {
+            valueInputOption: "RAW",
+          },
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  public setColumns(dbId: string, sheetName: string, columns: string[]): void {
+    let properties = this.findSheetProperties(dbId, sheetName);
+
+    if (properties === null) {
+      const response = this.sheets.Spreadsheets.batchUpdate(
+        {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: sheetName,
+                },
+              },
+            },
+          ],
+        },
+        dbId,
+      );
+
+      const sheetId = response.replies?.[0]?.addSheet?.properties?.sheetId;
+
+      if (sheetId === undefined || sheetId === null) {
+        throw new Error(
+          `Failed to create sheet '${sheetName}' in spreadsheet '${dbId}'.`,
+        );
+      }
+
+      properties = {
+        sheetId,
+        title: sheetName,
+      };
+
+      this.sheetProperties.set(this.tableKey(dbId, sheetName), properties);
     }
 
-    protect(): void {
-        this._table.protect().setDescription("Protected by SheetGateway");
+    const key = this.tableKey(dbId, sheetName);
+
+    this.sheets.Spreadsheets.Values.batchClear(
+      {
+        ranges: [`${this.quotedSheetName(sheetName)}!1:1`],
+      },
+      dbId,
+    );
+
+    if (columns.length > 0) {
+      const lastColumn = this.columnName(columns.length);
+
+      this.sheets.Spreadsheets.Values.update(
+        {
+          values: [columns],
+        },
+        dbId,
+        `${this.quotedSheetName(sheetName)}!A1:${lastColumn}1`,
+        {
+          valueInputOption: "RAW",
+        },
+      );
     }
+
+    this.headers.set(key, [...columns]);
+  }
+
+  public count(): number {
+    return this.read().length;
+  }
+
+  public lastId(primaryKey: string): number {
+    const records = this.read();
+
+    if (records.length === 0) {
+      return 0;
+    }
+
+    const lastId = records.at(-1)?.[primaryKey];
+
+    if (typeof lastId !== "number") {
+      throw new Error("Last ID is not a number");
+    }
+
+    return lastId;
+  }
+
+  public protect(): void {
+    const spreadsheet = this.sheets.Spreadsheets.get(this.spreadsheetId, {
+      fields:
+        "sheets(properties(sheetId,title),protectedRanges(protectedRangeId,description,range))",
+    });
+
+    const sheet = spreadsheet.sheets?.find(
+      (candidate) => candidate.properties?.title === this.sheetName,
+    );
+
+    if (!sheet) {
+      throw new Error(
+        `Sheet ${this.sheetName} not found in spreadsheet ${this.spreadsheetId}`,
+      );
+    }
+
+    const sheetId = sheet.properties?.sheetId;
+
+    if (sheetId === undefined || sheetId === null) {
+      throw new Error(`Sheet ${this.sheetName} has no sheetId`);
+    }
+    const exists =
+      sheet.protectedRanges?.some(
+        (protectedRange) =>
+          protectedRange.description === "Protected by SheetGateway" &&
+          protectedRange.range?.sheetId === sheetId,
+      ) ?? false;
+
+    if (exists) {
+      return;
+    }
+
+    this.sheets.Spreadsheets.batchUpdate(
+      {
+        requests: [
+          {
+            addProtectedRange: {
+              protectedRange: {
+                range: {
+                  sheetId,
+                },
+                description: "Protected by SheetGateway",
+              },
+            },
+          },
+        ],
+      },
+      this.spreadsheetId,
+    );
+  }
+
+  private toRecords(values: any[][], key: string): Record<string, any>[] {
+    if (values.length === 0) {
+      this.headers.set(key, []);
+
+      return [];
+    }
+
+    const headers = (values[0] ?? []).map((value) => String(value));
+
+    this.headers.set(key, headers);
+
+    if (headers.length === 0) {
+      return [];
+    }
+
+    return values.slice(1).map((row) => {
+      const record: Record<string, any> = {};
+
+      headers.forEach((header, index) => {
+        record[header] = row[index] ?? "";
+      });
+
+      return record;
+    });
+  }
+
+  private getHeaders(): string[] {
+    const key = this.tableKey();
+
+    const cached = this.headers.get(key);
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const response = this.sheets.Spreadsheets.Values.get(
+      this.spreadsheetId,
+      `${this.quotedSheetName()}!1:1`,
+      {
+        valueRenderOption: "UNFORMATTED_VALUE",
+      },
+    );
+
+    const headers = response.values?.[0]?.map((value) => String(value)) ?? [];
+
+    this.headers.set(key, headers);
+
+    return headers;
+  }
+
+  private findRowNumber(
+    primaryKey: string,
+    primaryKeyValue: unknown,
+  ): number | null {
+    const headers = this.getHeaders();
+
+    const columnIndex = headers.indexOf(primaryKey);
+
+    if (columnIndex === -1) {
+      throw new Error(`Primary key column ${primaryKey} not found`);
+    }
+
+    const column = this.columnName(columnIndex + 1);
+
+    const response = this.sheets.Spreadsheets.Values.get(
+      this.spreadsheetId,
+      `${this.quotedSheetName()}!${column}2:${column}`,
+      {
+        valueRenderOption: "UNFORMATTED_VALUE",
+      },
+    );
+
+    const values = response.values ?? [];
+
+    const index = values.findIndex((row) => row[0] === primaryKeyValue);
+
+    return index === -1 ? null : index + 2;
+  }
+
+  private getSheetProperties(dbId: string, sheetName: string): SheetProperties {
+    const cached = this.sheetProperties.get(this.tableKey(dbId, sheetName));
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const properties = this.findSheetProperties(dbId, sheetName);
+
+    if (properties === null) {
+      throw new Error(`Sheet ${sheetName} not found in spreadsheet ${dbId}`);
+    }
+
+    return properties;
+  }
+
+  private findSheetProperties(
+    dbId: string,
+    sheetName: string,
+  ): SheetProperties | null {
+    const cached = this.sheetProperties.get(this.tableKey(dbId, sheetName));
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const spreadsheet = this.sheets.Spreadsheets.get(dbId, {
+      fields: "sheets.properties(sheetId,title)",
+    });
+
+    const sheet = spreadsheet.sheets?.find(
+      (candidate) => candidate.properties?.title === sheetName,
+    );
+
+    const sheetId = sheet?.properties?.sheetId;
+    const title = sheet?.properties?.title;
+
+    if (
+      sheetId === undefined ||
+      sheetId === null ||
+      title === undefined ||
+      title === null
+    ) {
+      return null;
+    }
+
+    const properties = {
+      sheetId,
+      title,
+    };
+
+    this.sheetProperties.set(this.tableKey(dbId, sheetName), properties);
+
+    return properties;
+  }
+
+  private tableRange(sheetName: string): string {
+    return `${this.quotedSheetName(sheetName)}!A:ZZZ`;
+  }
+
+  private quotedSheetName(sheetName = this.sheetName): string {
+    return `'${sheetName.replace(/'/g, "''")}'`;
+  }
+
+  private tableKey(
+    dbId = this.spreadsheetId,
+    sheetName = this.sheetName,
+  ): string {
+    return `${dbId}:${sheetName}`;
+  }
+
+  private columnName(column: number): string {
+    let current = column;
+    let result = "";
+
+    while (current > 0) {
+      const remainder = (current - 1) % 26;
+
+      result = String.fromCharCode(65 + remainder) + result;
+
+      current = Math.floor((current - 1) / 26);
+    }
+
+    return result;
+  }
+
+  private toSheetValue(value: unknown): unknown {
+    return value ?? "";
+  }
 }

@@ -4,6 +4,7 @@ import { SheetTable } from "../core/SheetTable";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
 import type { WriteAuthorization } from "./WriteCommand";
 import { WriteCommand } from "./WriteCommand";
+
 export class DeleteCommand extends WriteCommand {
   constructor(
     table: SheetTable<any, any>,
@@ -40,42 +41,69 @@ export class DeleteCommand extends WriteCommand {
 
     collectTables(this.table, new Set());
 
-    const orderedTables = Array.from(affectedTables.values()).sort((a, b) => {
-      const aKey = `${a.dbId}:${a.name}`;
-      const bKey = `${b.dbId}:${b.name}`;
+    const orderedTables = Array.from(affectedTables.values()).sort(
+      (left, right) => {
+        const leftKey = `${left.dbId}:${left.name}`;
 
-      return aKey.localeCompare(bKey);
-    });
+        const rightKey = `${right.dbId}:${right.name}`;
+
+        return leftKey.localeCompare(rightKey);
+      },
+    );
 
     orderedTables.forEach((table) => table.lock(this.Cache, this.Utilities));
 
     try {
+      const loaded = this.gateway.readMany(
+        orderedTables.map((table) => ({
+          dbId: table.dbId,
+          sheetName: table.name,
+        })),
+      );
+
       const originalRecords = new Map<string, Record<string, any>[]>();
+
       const currentRecords = new Map<string, Record<string, any>[]>();
+
+      const locatedRecords = new Map<string, SheetRecords>();
+
+      const updatedRecords = new Map<string, Map<any, Record<string, any>>>();
+
+      const deletedPrimaryKeys = new Map<string, Set<any>>();
 
       for (const table of orderedTables) {
         const tableKey = `${table.dbId}:${table.name}`;
 
-        this.gateway.table(table.name, table.dbId);
-
-        const records = this.gateway.read();
+        const records = loaded.get(tableKey) ?? [];
 
         originalRecords.set(tableKey, records);
-        currentRecords.set(tableKey, records);
 
-        if (this.transactionEnabled) {
-          const sheetTable = table as SheetTable<any, any>;
+        currentRecords.set(
+          tableKey,
+          records.map((record) => ({
+            ...record,
+          })),
+        );
 
-          if (!sheetTable.cache.hasExsist()) {
-            sheetTable.cache.setExsist(
-              new SheetRecords(records, sheetTable.primaryKey as string),
-            );
-          }
+        const sheetTable = table as SheetTable<any, any>;
+
+        const located = new SheetRecords(
+          records,
+          sheetTable.primaryKey as string,
+        );
+
+        locatedRecords.set(tableKey, located);
+
+        if (this.transactionEnabled && !sheetTable.cache.hasExsist()) {
+          sheetTable.cache.setExsist(
+            new SheetRecords(records, sheetTable.primaryKey as string),
+          );
         }
       }
 
       const rootKey = `${this.table.dbId}:${this.table.name}`;
-      const rootRecords = currentRecords.get(rootKey)!;
+
+      const rootRecords = currentRecords.get(rootKey) ?? [];
 
       const targetRecords = rootRecords.filter((record) =>
         this.pkValues.includes(record[this.table.primaryKey as string]),
@@ -105,6 +133,7 @@ export class DeleteCommand extends WriteCommand {
         }
 
         const nextVisitedTargets = new Set(visitedTargets);
+
         nextVisitedTargets.add(visitKey);
 
         for (const relation of table.getChildren()) {
@@ -117,8 +146,10 @@ export class DeleteCommand extends WriteCommand {
           }
 
           const childTable = relation.childTable;
+
           const childTableKey = `${childTable.dbId}:${childTable.name}`;
-          const childRecords = currentRecords.get(childTableKey)!;
+
+          const childRecords = currentRecords.get(childTableKey) ?? [];
 
           const relatedChildren = childRecords.filter((record) =>
             parentKeyValues.includes(record[relation.childKey]),
@@ -139,7 +170,9 @@ export class DeleteCommand extends WriteCommand {
               childTable as SheetTable<any, any>,
               relatedChildren,
             );
+
             deleteRecords(childTable, relatedChildren, nextVisitedTargets);
+
             continue;
           }
 
@@ -154,6 +187,18 @@ export class DeleteCommand extends WriteCommand {
               relatedChildren,
               nextRelatedChildren,
             );
+
+            let changes = updatedRecords.get(childTableKey);
+
+            if (!changes) {
+              changes = new Map();
+
+              updatedRecords.set(childTableKey, changes);
+            }
+
+            for (const record of nextRelatedChildren) {
+              changes.set(record[childTable.primaryKey as string], record);
+            }
 
             const nextByPrimaryKey = new Map(
               nextRelatedChildren.map((record) => [
@@ -175,7 +220,17 @@ export class DeleteCommand extends WriteCommand {
           }
         }
 
-        const latestRecords = currentRecords.get(tableKey)!;
+        let deleted = deletedPrimaryKeys.get(tableKey);
+
+        if (!deleted) {
+          deleted = new Set();
+
+          deletedPrimaryKeys.set(tableKey, deleted);
+        }
+
+        targetPrimaryKeys.forEach((primaryKey) => deleted!.add(primaryKey));
+
+        const latestRecords = currentRecords.get(tableKey) ?? [];
 
         currentRecords.set(
           tableKey,
@@ -191,11 +246,39 @@ export class DeleteCommand extends WriteCommand {
       for (const table of orderedTables) {
         const tableKey = `${table.dbId}:${table.name}`;
 
-        const previous = originalRecords.get(tableKey)!;
-        const next = currentRecords.get(tableKey)!;
+        const sheetTable = table as SheetTable<any, any>;
 
-        this.gateway.table(table.name, table.dbId);
-        this.gateway.rewrite(next, previous);
+        const located = locatedRecords.get(tableKey)!;
+
+        const deleted = deletedPrimaryKeys.get(tableKey) ?? new Set<any>();
+
+        const changes = updatedRecords.get(tableKey);
+
+        if (changes !== undefined && changes.size > 0) {
+          const survivingUpdates = Array.from(changes.values()).filter(
+            (record) => !deleted.has(record[sheetTable.primaryKey as string]),
+          );
+
+          if (survivingUpdates.length > 0) {
+            this.gateway.table(table.name, table.dbId);
+
+            this.gateway.update(
+              survivingUpdates,
+              located,
+              sheetTable.primaryKey as string,
+            );
+          }
+        }
+
+        if (deleted.size > 0) {
+          this.gateway.table(table.name, table.dbId);
+
+          this.gateway.delete(
+            Array.from(deleted),
+            located,
+            sheetTable.primaryKey as string,
+          );
+        }
       }
     } finally {
       orderedTables

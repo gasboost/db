@@ -197,12 +197,14 @@ describe("Replica", () => {
         id: "u1",
         name: "Alice",
         active: true,
-        reservations: [
-          {
-            id: "r1",
-            userId: "u1",
-          },
-        ],
+        relations: {
+          reservations: [
+            {
+              id: "r1",
+              userId: "u1",
+            },
+          ],
+        },
       },
     ]);
   });
@@ -271,19 +273,23 @@ describe("Replica", () => {
         id: "u1",
         name: "Alice",
         active: true,
-        reservations: [
-          {
-            id: "r1",
-            userId: "u1",
-            staffId: "s1",
-            staffs: [
-              {
-                id: "s1",
-                name: "Hanako",
+        relations: {
+          reservations: [
+            {
+              id: "r1",
+              userId: "u1",
+              staffId: "s1",
+              relations: {
+                staffs: [
+                  {
+                    id: "s1",
+                    name: "Hanako",
+                  },
+                ],
               },
-            ],
-          },
-        ],
+            },
+          ],
+        },
       },
     ]);
   });

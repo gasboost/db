@@ -1,4 +1,9 @@
-import { QueryEvaluation, type Query } from "@gasboost/query";
+import {
+  QueryEvaluation,
+  type Query,
+  type QueryJoins,
+  type QueryResult,
+} from "@gasboost/query";
 import Dexie, { type Table } from "dexie";
 import { ReplicaTable } from "./ReplicaTable";
 import {
@@ -51,20 +56,32 @@ export class Replica<T extends readonly ReplicaTableDefinition[]> {
     });
   }
 
-  public async find<N extends T[number]["name"]>(
-    query: Query<T, N>,
-  ): Promise<Record<string, unknown>[]> {
+  public async find<N extends T[number]["name"], J extends QueryJoins>(
+    query: Query<T, N, J>,
+  ): Promise<QueryResult<T, N, J>[]> {
     const evaluation = new QueryEvaluation(
       query,
-      ({ parent, table, children }) => ({
-        ...parent,
-        [table]: children,
-      }),
+      ({ parent, table, children }) => {
+        const relations =
+          typeof parent.relations === "object" &&
+          parent.relations !== null &&
+          !Array.isArray(parent.relations)
+            ? parent.relations
+            : {};
+
+        return {
+          ...parent,
+          relations: {
+            ...relations,
+            [table]: children,
+          },
+        };
+      },
     );
 
     return evaluation.resolveAsync(
       async (name) =>
         this.db.table(name).toArray() as Promise<Record<string, unknown>[]>,
-    );
+    ) as Promise<QueryResult<T, N, J>[]>;
   }
 }

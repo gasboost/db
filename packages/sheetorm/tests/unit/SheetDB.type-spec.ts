@@ -50,3 +50,97 @@ it("rejects RLS for a table outside SheetDB tables", () => {
     rowLevelSecurity: [ordersRls],
   });
 });
+
+const users = new SheetTable({
+  dbId: "db",
+  name: "users",
+  schema: z.object({
+    id: z.string(),
+    name: z.string(),
+  }),
+  primaryKey: "id",
+});
+
+const posts = new SheetTable({
+  dbId: "db",
+  name: "posts",
+  schema: z.object({
+    id: z.string(),
+    userId: z.string(),
+    title: z.string(),
+  }),
+  primaryKey: "id",
+});
+
+const comments = new SheetTable({
+  dbId: "db",
+  name: "comments",
+  schema: z.object({
+    id: z.string(),
+    postId: z.string(),
+    body: z.string(),
+  }),
+  primaryKey: "id",
+});
+
+const profiles = new SheetTable({
+  dbId: "db",
+  name: "profiles",
+  schema: z.object({
+    id: z.string(),
+    userId: z.string(),
+    bio: z.string(),
+  }),
+  primaryKey: "id",
+});
+
+const tables = [users, posts, comments, profiles] as const;
+
+declare const db: SheetDB<typeof tables>;
+
+const noJoin = db.find(db.query("users"));
+
+const noJoinId: string = noJoin[0].id;
+const noJoinName: string = noJoin[0].name;
+
+// @ts-expect-error JOIN なしでは relations は存在しない
+noJoin[0].relations;
+
+const oneJoin = db.find(db.query("users").join("id", "posts", "userId"));
+
+const postId: string = oneJoin[0].relations.posts[0].id;
+const postTitle: string = oneJoin[0].relations.posts[0].title;
+
+// @ts-expect-error posts に存在しない column
+oneJoin[0].relations.posts[0].body;
+
+const multipleJoin = db.find(
+  db
+    .query("users")
+    .join("id", "posts", "userId")
+    .join("id", "profiles", "userId"),
+);
+
+const multiplePostTitle: string = multipleJoin[0].relations.posts[0].title;
+
+const profileBio: string = multipleJoin[0].relations.profiles[0].bio;
+
+const postsQuery = db.query("posts").join("id", "comments", "postId");
+
+const nestedJoin = db.find(
+  db.query("users").join("id", "posts", "userId", postsQuery),
+);
+
+const nestedPostTitle: string = nestedJoin[0].relations.posts[0].title;
+
+const nestedCommentBody: string =
+  nestedJoin[0].relations.posts[0].relations.comments[0].body;
+
+void noJoinId;
+void noJoinName;
+void postId;
+void postTitle;
+void multiplePostTitle;
+void profileBio;
+void nestedPostTitle;
+void nestedCommentBody;

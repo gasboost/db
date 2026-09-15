@@ -2,17 +2,25 @@ import type { z } from "zod";
 import { Filter, Operand } from "./Filter";
 import { Join } from "./Join";
 import { OrderBy } from "./OrderBy";
+import type { QueryJoinNode, QueryJoins, SetQueryJoin } from "./QueryResult";
 import type { TableByName, TableDefinition } from "./TableDefinition";
+
+declare const queryJoinsType: unique symbol;
 
 export type CriteriaValue<
   S extends z.ZodObject<any>,
   K extends keyof z.infer<S>,
 > = z.infer<S>[K];
 
+export type QueryJoinsOf<Q> = Q extends Query<any, any, infer J> ? J : never;
+
 export class Query<
   T extends readonly TableDefinition[],
   N extends T[number]["name"] = T[number]["name"],
+  J extends QueryJoins = {},
 > {
+  declare readonly [queryJoinsType]: J;
+
   public readonly tableName: N;
   public readonly requires: Filter[] = [];
   public readonly options: Filter[] = [];
@@ -72,12 +80,13 @@ export class Query<
     RefName extends T[number]["name"],
     LocalKey extends keyof z.infer<TableByName<T, N>["schema"]>,
     RefKey extends keyof z.infer<TableByName<T, RefName>["schema"]>,
+    RefJoins extends QueryJoins = {},
   >(
     localKey: LocalKey,
     referenceTableName: RefName,
     referenceKey: RefKey,
-    query?: Query<T, RefName>,
-  ): this {
+    query?: Query<T, RefName, RefJoins>,
+  ): Query<T, N, SetQueryJoin<J, RefName, QueryJoinNode<RefName, RefJoins>>> {
     this.joins.push(
       new Join({
         table: referenceTableName,
@@ -87,6 +96,10 @@ export class Query<
       }),
     );
 
-    return this;
+    return this as unknown as Query<
+      T,
+      N,
+      SetQueryJoin<J, RefName, QueryJoinNode<RefName, RefJoins>>
+    >;
   }
 }

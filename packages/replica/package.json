@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/replica",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Type-safe IndexedDB replica powered by Dexie and Zod",
   "repository": {
     "type": "git",

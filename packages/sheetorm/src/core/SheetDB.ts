@@ -1,13 +1,15 @@
-import { Query, QueryEvaluation } from "@gasboost/query";
+import {
+  Query,
+  QueryEvaluation,
+  type QueryJoins,
+  type QueryResult,
+} from "@gasboost/query";
 import type { PredicateExpression, RowLevelSecurity } from "@gasboost/rls";
 import { ZodObject, z } from "zod";
 import { CreateCommand } from "../commands/CreateCommand";
 import { DeleteCommand } from "../commands/DeleteCommand";
 import { UpdateCommand } from "../commands/UpdateCommand";
-import {
-  RecordWithRelations,
-  WriteAuthorization,
-} from "../commands/WriteCommand";
+import { WriteAuthorization } from "../commands/WriteCommand";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
 import { Relationable, TableByName } from "./Relationable";
 import {
@@ -451,17 +453,17 @@ export class SheetDB<
     return new Query<T, U>(tableName);
   }
 
-  public find(): RecordWithRelations<CurrentRecord<T, N>>[];
+  public find(): CurrentRecord<T, N>[];
 
-  public find<U extends T[number]["name"]>(
-    query: Query<T, U>,
-  ): RecordWithRelations<CurrentRecord<T, U>>[];
+  public find<U extends T[number]["name"], J extends QueryJoins>(
+    query: Query<T, U, J>,
+  ): QueryResult<T, U, J>[];
 
   public find(
-    query?: Query<T, any>,
-  ): RecordWithRelations<CurrentRecord<T, N>>[];
+    query?: Query<T, any, any>,
+  ): CurrentRecord<T, N>[] | QueryResult<T, any, any>[];
 
-  public find(query?: Query<T, any>): any {
+  public find(query?: Query<T, any, any>): any {
     const tableNames =
       query === undefined
         ? new Set<string>([this._table.name])
@@ -671,7 +673,7 @@ export class SheetDB<
   }
 
   private collectQueryTableNames(
-    query: Query<T, any>,
+    query: Query<T, any, any>,
     tableNames = new Set<string>(),
   ): Set<string> {
     tableNames.add(query.tableName);

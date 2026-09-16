@@ -1,28 +1,33 @@
 import type { PredicateExpression, TableDefinition } from "./Expression";
 
-export type SelectPolicy = {
-  readonly using: PredicateExpression;
+export type SelectPolicy<K extends string = string> = {
+  readonly using: PredicateExpression<K>;
 };
 
-export type InsertPolicy = {
-  readonly check: PredicateExpression;
+export type InsertPolicy<K extends string = string> = {
+  readonly check: PredicateExpression<K>;
 };
 
-export type UpdatePolicy = {
-  readonly using: PredicateExpression;
-  readonly check: PredicateExpression;
+export type UpdatePolicy<K extends string = string> = {
+  readonly using: PredicateExpression<K>;
+  readonly check: PredicateExpression<K>;
 };
 
-export type DeletePolicy = {
-  readonly using: PredicateExpression;
+export type DeletePolicy<K extends string = string> = {
+  readonly using: PredicateExpression<K>;
 };
 
-export class RowLevelSecurity<T extends TableDefinition> {
+export class RowLevelSecurity<
+  T extends TableDefinition,
+  K extends string = string,
+> {
   public readonly table: T;
-  public readonly select: SelectPolicy | null;
-  public readonly insert: InsertPolicy | null;
-  public readonly update: UpdatePolicy | null;
-  public readonly delete: DeletePolicy | null;
+  public readonly select: SelectPolicy<K> | null;
+  public readonly insert: InsertPolicy<K> | null;
+  public readonly update: UpdatePolicy<K> | null;
+  public readonly delete: DeletePolicy<K> | null;
+
+  declare public readonly __principalKeys?: K;
 
   constructor({
     table,
@@ -32,10 +37,10 @@ export class RowLevelSecurity<T extends TableDefinition> {
     delete: deletePolicy = null,
   }: {
     table: T;
-    select?: SelectPolicy | null;
-    insert?: InsertPolicy | null;
-    update?: UpdatePolicy | null;
-    delete?: DeletePolicy | null;
+    select?: SelectPolicy<K> | null;
+    insert?: InsertPolicy<K> | null;
+    update?: UpdatePolicy<K> | null;
+    delete?: DeletePolicy<K> | null;
   }) {
     this.table = table;
     this.select = select;

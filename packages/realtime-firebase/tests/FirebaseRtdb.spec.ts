@@ -288,14 +288,15 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    expect(() =>
-      FirebaseRtdb.generate({
-        tables: [deals] as const,
-        rowLevelSecurity: [security],
-        principal: {
-          storeId: "auth.token.storeId",
-        },
-      }),
+    expect(
+      () =>
+        new FirebaseRtdb({
+          tables: [deals] as const,
+          rowLevelSecurity: [security],
+          principal: {
+            storeId: "auth.token.storeId",
+          },
+        }),
     ).toThrow("Firebase principal mapping for 'userId' is not defined.");
   });
 });

@@ -1,9 +1,10 @@
-import { column, eq, principal, RowLevelSecurity } from "@gasboost/rls";
+import { and, column, eq, principal, RowLevelSecurity } from "@gasboost/rls";
 import { z } from "zod";
 import { FirebaseRtdb } from "../src";
 
 const principalSchema = z.object({
   userId: z.string(),
+  storeId: z.string(),
 });
 
 const userSchema = z.object({
@@ -53,6 +54,52 @@ rtdb.users.scope({
   userId: "user-1",
   // @ts-expect-error unknown principal field
   storeId: "store-1",
+});
+
+FirebaseRtdb.generate({
+  tables: [users] as const,
+  rowLevelSecurity: [security],
+  // @ts-expect-error userId is required because RLS references principal.userId
+  principal: {
+    storeId: "auth.token.storeId",
+  },
+});
+
+FirebaseRtdb.generate({
+  tables: [users] as const,
+  rowLevelSecurity: [security],
+  principal: {
+    userId: "auth.uid",
+    storeId: "auth.token.storeId",
+  },
+});
+
+const multiplePrincipalSecurity = new RowLevelSecurity({
+  table: users,
+  select: {
+    using: and(
+      eq(column(users, "id"), principal(principalSchema, "userId")),
+      eq(column(users, "name"), principal(principalSchema, "storeId")),
+    ),
+  },
+});
+
+FirebaseRtdb.generate({
+  tables: [users] as const,
+  rowLevelSecurity: [multiplePrincipalSecurity],
+  principal: {
+    userId: "auth.uid",
+    storeId: "auth.token.storeId",
+  },
+});
+
+FirebaseRtdb.generate({
+  tables: [users] as const,
+  rowLevelSecurity: [multiplePrincipalSecurity],
+  // @ts-expect-error storeId is also required by RLS
+  principal: {
+    userId: "auth.uid",
+  },
 });
 
 const invalidPrimaryKeyUsers = {

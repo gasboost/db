@@ -4,6 +4,16 @@ export type FirebaseRtdbPathValue = string | number | boolean;
 
 export type FirebaseRtdbPrincipalMapping = Readonly<Record<string, string>>;
 
+export type FirebaseRtdbRequiredPrincipalKeys<
+  R extends readonly RowLevelSecurity<any, string>[],
+> = R[number] extends RowLevelSecurity<any, infer K> ? K : never;
+
+export type FirebaseRtdbRequiredPrincipalMapping<
+  R extends readonly RowLevelSecurity<any, string>[],
+> = {
+  readonly [K in FirebaseRtdbRequiredPrincipalKeys<R>]: string;
+};
+
 export type FirebaseRtdbPrincipalValues<
   P extends FirebaseRtdbPrincipalMapping,
 > = {
@@ -35,10 +45,12 @@ export type FirebaseRtdbRecord<T extends FirebaseRtdbTableDefinition> =
 export type FirebaseRtdbConfig<
   T extends readonly FirebaseRtdbTableDefinition[],
   P extends FirebaseRtdbPrincipalMapping,
+  R extends readonly RowLevelSecurity<T[number], string>[] =
+    readonly RowLevelSecurity<T[number], string>[],
 > = {
   readonly tables: T & FirebaseRtdbValidatedTables<T>;
-  readonly rowLevelSecurity?: readonly RowLevelSecurity<T[number]>[];
-  readonly principal: P;
+  readonly rowLevelSecurity?: R;
+  readonly principal: P & FirebaseRtdbRequiredPrincipalMapping<R>;
 };
 
 export type FirebaseRtdbTableName<

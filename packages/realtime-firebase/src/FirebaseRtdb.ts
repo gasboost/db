@@ -94,8 +94,10 @@ export class FirebaseRtdb<
   public static generate<
     const T extends readonly FirebaseRtdbTableDefinition[],
     const P extends FirebaseRtdbPrincipalMapping,
-  >(config: FirebaseRtdbConfig<T, P>): FirebaseRtdbInstance<T, P> {
-    const rtdb = new FirebaseRtdb(config);
+    const R extends readonly RowLevelSecurity<T[number], string>[] =
+      readonly [],
+  >(config: FirebaseRtdbConfig<T, P, R>): FirebaseRtdbInstance<T, P> {
+    const rtdb = new FirebaseRtdb<T, P>(config);
 
     for (const table of config.tables) {
       if (table.name in rtdb) {

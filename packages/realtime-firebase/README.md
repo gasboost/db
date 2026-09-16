@@ -92,6 +92,10 @@ export const rtdb = FirebaseRtdb.generate({
 });
 ```
 
+RLS で参照している Principal key は `rowLevelSecurity` から型推論されます。
+
+そのため、例えば RLS が `principal(principalSchema, "userId")` を参照している場合、`principal` mapping の `userId` は必須です。
+
 この `rtdb` は、runtime path と Security Rules の両方で同じ定義として利用されます。
 
 ## Runtime path
@@ -567,7 +571,90 @@ auth.token.storeId
 
 に変換できます。
 
-mapping が存在しない Principal を利用した場合は error になります。
+### Principal mapping の型推論
+
+`FirebaseRtdb.generate()` は、`rowLevelSecurity` で参照されている Principal key を型レベルで追跡します。
+
+例えば RLS が次の Principal を参照している場合、
+
+```ts
+const security = new RowLevelSecurity({
+  table: deals,
+  select: {
+    using: eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
+  },
+});
+```
+
+`principal` mapping には `userId` が必須になります。
+
+```ts
+FirebaseRtdb.generate({
+  tables: [deals] as const,
+  rowLevelSecurity: [security],
+
+  principal: {
+    userId: "auth.uid",
+  },
+});
+```
+
+必要な mapping を省略すると TypeScript error になります。
+
+```ts
+FirebaseRtdb.generate({
+  tables: [deals] as const,
+  rowLevelSecurity: [security],
+
+  principal: {
+    storeId: "auth.token.storeId",
+    // error: userId is required
+  },
+});
+```
+
+複数の Principal key を RLS で利用する場合は、すべての key が必須になります。
+
+```ts
+const security = new RowLevelSecurity({
+  table: deals,
+  select: {
+    using: and(
+      eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
+      eq(column(deals, "storeId"), principal(principalSchema, "storeId")),
+    ),
+  },
+});
+
+FirebaseRtdb.generate({
+  tables: [deals] as const,
+  rowLevelSecurity: [security],
+
+  principal: {
+    userId: "auth.uid",
+    storeId: "auth.token.storeId",
+  },
+});
+```
+
+RLS で必要とされる key 以外の mapping を追加することもできます。
+
+```ts
+FirebaseRtdb.generate({
+  tables: [deals] as const,
+  rowLevelSecurity: [security],
+
+  principal: {
+    userId: "auth.uid",
+    storeId: "auth.token.storeId",
+    role: "auth.token.role",
+  },
+});
+```
+
+この型チェックは compile time の安全性を提供します。
+
+同時に runtime でも Principal mapping を検証するため、型情報を失った JavaScript、型 assertion、外部入力などから不正な定義が渡された場合も missing mapping を拒否します。
 
 すべての Principal を暗黙に `auth.uid` と扱うことはありません。
 

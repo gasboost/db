@@ -142,6 +142,18 @@ export class SheetDB<
     return this as any;
   }
 
+  public definition<U extends T[number]["name"]>(name: U): TableByName<T, U> {
+    const table = this.tables.find(
+      (candidate): candidate is TableByName<T, U> => candidate.name === name,
+    );
+
+    if (!table) {
+      throw new Error(`Table '${name}' not found.`);
+    }
+
+    return table;
+  }
+
   public create(
     params: CreateParams<T, CurrentSchema<T, N>>[],
   ): CurrentRecord<T, N>[] {

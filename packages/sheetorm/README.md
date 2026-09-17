@@ -302,6 +302,20 @@ Zod Schema から Record の型が推論されるため、利用側で `SheetEnt
 
 ---
 
+# Table Definition
+
+`SheetDB.definition(name)` で、`SheetDB` が保持している `SheetTable` 定義を取得できます。
+
+```ts
+const userTable = db.definition("users");
+```
+
+`name` は `SheetDB` に渡した tables の table name に制限され、戻り値は対応する `SheetTable` 型に絞り込まれます。
+
+`db.table(name)` は操作対象テーブルを切り替える API ですが、`definition(name)` は定義を読み取るだけで現在の操作対象テーブルを変更しません。
+
+---
+
 # Table
 
 ## SheetTable

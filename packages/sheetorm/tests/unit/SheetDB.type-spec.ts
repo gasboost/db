@@ -98,6 +98,20 @@ const tables = [users, posts, comments, profiles] as const;
 
 declare const db: SheetDB<typeof tables>;
 
+const userDefinition = db.definition("users");
+const userDefinitionName: "users" = userDefinition.name;
+const userDefinitionNameField = userDefinition.schema.shape.name;
+
+// @ts-expect-error users table does not have title column
+userDefinition.schema.shape.title;
+
+const postDefinition = db.definition("posts");
+const postDefinitionName: "posts" = postDefinition.name;
+const postDefinitionTitleField = postDefinition.schema.shape.title;
+
+// @ts-expect-error unknown table names are rejected
+db.definition("unknown");
+
 const noJoin = db.find(db.query("users"));
 
 const noJoinId: string = noJoin[0].id;
@@ -138,6 +152,10 @@ const nestedCommentBody: string =
 
 void noJoinId;
 void noJoinName;
+void userDefinitionName;
+void userDefinitionNameField;
+void postDefinitionName;
+void postDefinitionTitleField;
 void postId;
 void postTitle;
 void multiplePostTitle;

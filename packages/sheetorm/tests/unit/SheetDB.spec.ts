@@ -17,6 +17,79 @@ function createAuthorization() {
 }
 
 describe("SheetDB", () => {
+  it("returns table definition by name without switching current table", () => {
+    const userSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      name: z.string(),
+    });
+    const postSchema = z.object({
+      id: z.number().meta({ primary: true }),
+      title: z.string(),
+    });
+    const userTable = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: userSchema,
+      primaryKey: "id",
+    });
+    const postTable = new SheetTable({
+      dbId: "db",
+      name: "posts",
+      schema: postSchema,
+      primaryKey: "id",
+    });
+
+    const db = new SheetDB({
+      tables: [userTable, postTable] as const,
+      gateway: new InMemoryGateway(
+        new InMemoryDataStore(
+          new Map([
+            [
+              "db:users",
+              [
+                ["id", "name"],
+                [1, "taro"],
+              ],
+            ],
+            [
+              "db:posts",
+              [
+                ["id", "title"],
+                [10, "hello"],
+              ],
+            ],
+          ]),
+        ),
+      ),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
+
+    expect(db.definition("posts")).toBe(postTable);
+    expect(db.find()).toEqual([{ id: 1, name: "taro" }]);
+  });
+
+  it("throws when table definition is not found", () => {
+    const table = new SheetTable({
+      dbId: "db",
+      name: "users",
+      schema: z.object({ id: z.number().meta({ primary: true }) }),
+      primaryKey: "id",
+    });
+    const db = new SheetDB({
+      tables: [table] as const,
+      gateway: new InMemoryGateway(
+        new InMemoryDataStore(new Map([["db:users", [["id"]]]])),
+      ),
+      cacheService: new InMemoryCacheService(),
+      utilities: new NodeUtilities(),
+    });
+
+    expect(() =>
+      db.definition("missing" as typeof table["name"]),
+    ).toThrowError("Table 'missing' not found.");
+  });
+
   it("skips deleteCascade when no relations", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
     const table = new SheetTable({

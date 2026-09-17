@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/sheetorm",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Type-safe ORM for Google Sheets and Google Apps Script powered by Zod",
   "repository": {
     "type": "git",
@@ -32,15 +32,19 @@
     "README.md"
   ],
   "dependencies": {
-    "zod": "^4.5.4",
     "@gasboost/query": "workspace:*",
-    "@gasboost/rls": "workspace:*"
+    "@gasboost/rls": "workspace:*",
+    "@gasboost/table": "workspace:*"
+  },
+  "peerDependencies": {
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@gasboost/fake-core": "^0.1.1",
     "@gasboost/fake-node": "^0.1.1",
     "@types/google-apps-script": "^2.0.12",
-    "@types/node": "^26.4.1"
+    "@types/node": "^26.4.1",
+    "zod": "^4.5.4"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

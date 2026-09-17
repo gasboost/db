@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import type { TableColumnName, TableColumnValue } from "@gasboost/table";
 import { Filter, Operand } from "./Filter";
 import { Join } from "./Join";
 import { OrderBy } from "./OrderBy";
@@ -8,9 +8,9 @@ import type { TableByName, TableDefinition } from "./TableDefinition";
 declare const queryJoinsType: unique symbol;
 
 export type CriteriaValue<
-  S extends z.ZodObject<any>,
-  K extends keyof z.infer<S>,
-> = z.infer<S>[K];
+  T extends TableDefinition,
+  K extends TableColumnName<T>,
+> = TableColumnValue<T, K>;
 
 export type QueryJoinsOf<Q> = Q extends Query<any, any, infer J> ? J : never;
 
@@ -33,10 +33,10 @@ export class Query<
     this.tableName = tableName;
   }
 
-  public and<K extends keyof z.infer<TableByName<T, N>["schema"]>>(
+  public and<K extends TableColumnName<TableByName<T, N>>>(
     column: K,
     operand: Operand,
-    values: CriteriaValue<TableByName<T, N>["schema"], K>[],
+    values: CriteriaValue<TableByName<T, N>, K>[],
   ): this {
     this.requires.push(
       new Filter(column as string, operand, values as never[]),
@@ -45,17 +45,17 @@ export class Query<
     return this;
   }
 
-  public or<K extends keyof z.infer<TableByName<T, N>["schema"]>>(
+  public or<K extends TableColumnName<TableByName<T, N>>>(
     column: K,
     operand: Operand,
-    values: CriteriaValue<TableByName<T, N>["schema"], K>[],
+    values: CriteriaValue<TableByName<T, N>, K>[],
   ): this {
     this.options.push(new Filter(column as string, operand, values as never[]));
 
     return this;
   }
 
-  public orderBy<K extends keyof z.infer<TableByName<T, N>["schema"]>>(
+  public orderBy<K extends TableColumnName<TableByName<T, N>>>(
     column: K,
     order: "asc" | "desc" = "asc",
   ): this {
@@ -78,8 +78,8 @@ export class Query<
 
   public join<
     RefName extends T[number]["name"],
-    LocalKey extends keyof z.infer<TableByName<T, N>["schema"]>,
-    RefKey extends keyof z.infer<TableByName<T, RefName>["schema"]>,
+    LocalKey extends TableColumnName<TableByName<T, N>>,
+    RefKey extends TableColumnName<TableByName<T, RefName>>,
     RefJoins extends QueryJoins = {},
   >(
     localKey: LocalKey,

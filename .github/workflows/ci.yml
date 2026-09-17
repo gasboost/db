@@ -29,6 +29,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # @gasboost/table is the shared workspace dependency for almost every package.
+      # Build it first so dependent package typechecks can resolve its dist types.
+      - name: Typecheck table
+        run: pnpm --filter @gasboost/table typecheck
+
+      - name: Test table
+        run: pnpm --filter @gasboost/table test
+
+      - name: Build table
+        run: pnpm --filter @gasboost/table build
+
+      - name: Pack table
+        run: pnpm --filter @gasboost/table pack:check
+
       - name: Typecheck query
         run: pnpm --filter @gasboost/query typecheck
 
@@ -64,9 +78,11 @@ jobs:
 
       - name: Pack and smoke test realtime-firebase
         run: |
+          pnpm --filter @gasboost/table pack
           pnpm --filter @gasboost/rls pack
           pnpm --filter @gasboost/realtime-firebase pack
 
+          TABLE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-table-*.tgz' -print -quit)"
           RLS_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-rls-*.tgz' -print -quit)"
           REALTIME_FIREBASE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-realtime-firebase-*.tgz' -print -quit)"
 
@@ -82,6 +98,7 @@ jobs:
 
           pkg.pnpm = {
               overrides: {
+              '@gasboost/table': 'file:${TABLE_PACKAGE_FILE}',
               '@gasboost/rls': 'file:${RLS_PACKAGE_FILE}'
               }
           };
@@ -143,10 +160,12 @@ jobs:
 
       - name: Pack and smoke test sheetorm
         run: |
+          pnpm --filter @gasboost/table pack
           pnpm --filter @gasboost/query pack
           pnpm --filter @gasboost/rls pack
           pnpm --filter @gasboost/sheetorm pack
 
+          TABLE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-table-*.tgz' -print -quit)"
           QUERY_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-query-*.tgz' -print -quit)"
           RLS_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-rls-*.tgz' -print -quit)"
           SHEETORM_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-sheetorm-*.tgz' -print -quit)"
@@ -163,6 +182,7 @@ jobs:
 
             pkg.pnpm = {
               overrides: {
+                '@gasboost/table': 'file:${TABLE_PACKAGE_FILE}',
                 '@gasboost/query': 'file:${QUERY_PACKAGE_FILE}',
                 '@gasboost/rls': 'file:${RLS_PACKAGE_FILE}'
               }

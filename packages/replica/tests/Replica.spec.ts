@@ -1,4 +1,3 @@
-import { Query } from "@gasboost/query";
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -154,11 +153,7 @@ describe("Replica", () => {
       },
     ]);
 
-    const query = new Query<typeof tables, "users">("users").and(
-      "active",
-      "=",
-      [true],
-    );
+    const query = replica.query("users").and("active", "=", [true]);
 
     expect(await replica.find(query)).toEqual([
       {
@@ -186,11 +181,7 @@ describe("Replica", () => {
       userId: "u1",
     });
 
-    const query = new Query<typeof tables, "users">("users").join(
-      "id",
-      "reservations",
-      "userId",
-    );
+    const query = replica.query("users").join("id", "reservations", "userId");
 
     expect(await replica.find(query)).toEqual([
       {
@@ -257,11 +248,11 @@ describe("Replica", () => {
       name: "Hanako",
     });
 
-    const reservations = new Query<typeof nestedTables, "reservations">(
-      "reservations",
-    ).join("staffId", "staffs", "id");
+    const reservations = replica
+      .query("reservations")
+      .join("staffId", "staffs", "id");
 
-    const users = new Query<typeof nestedTables, "users">("users").join(
+    const users = replica.query("users").join(
       "id",
       "reservations",
       "userId",

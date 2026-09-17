@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/replica",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Type-safe IndexedDB replica powered by Dexie and Zod",
   "repository": {
     "type": "git",
@@ -34,11 +34,12 @@
   ],
   "dependencies": {
     "dexie": "^4.4.6",
-    "zod": "^4.5.4",
-    "@gasboost/query": "workspace:*"
+    "@gasboost/query": "workspace:*",
+    "@gasboost/table": "workspace:*"
   },
   "devDependencies": {
-    "fake-indexeddb": "^6.2.5"
+    "fake-indexeddb": "^6.2.5",
+    "zod": "^4.5.4"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

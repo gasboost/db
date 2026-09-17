@@ -45,13 +45,13 @@ Loader
 # Installation
 
 ```bash
-pnpm add @gasboost/replica @gasboost/query dexie zod
+pnpm add @gasboost/replica @gasboost/table dexie zod
 ```
 
 npm の場合:
 
 ```bash
-npm install @gasboost/replica @gasboost/query dexie zod
+npm install @gasboost/replica @gasboost/table dexie zod
 ```
 
 ---
@@ -65,6 +65,7 @@ Replica では以下を使って Table を定義します。
 - Primary Key
 
 ```ts
+import { defineTable } from "@gasboost/table";
 import { z } from "zod";
 
 const UserSchema = z.object({
@@ -79,16 +80,16 @@ const ReservationSchema = z.object({
 });
 
 const tables = [
-  {
+  defineTable({
     name: "users",
     schema: UserSchema,
     primaryKey: "id",
-  },
-  {
+  }),
+  defineTable({
     name: "reservations",
     schema: ReservationSchema,
     primaryKey: "id",
-  },
+  }),
 ] as const;
 ```
 
@@ -277,14 +278,12 @@ await replica.sync("users", []);
 
 # Query Integration
 
-`@gasboost/replica` は `@gasboost/query` と直接連携できます。
+`@gasboost/replica` は `@gasboost/query` と連携します。
+通常は `replica.query()` から型安全な Query を生成できます。
 
 ```ts
-import { Query } from "@gasboost/query";
-
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-})
+const query = replica
+  .query("users")
   .and("active", "=", [true])
   .orderBy("name", "asc");
 ```
@@ -316,9 +315,7 @@ replica.table(name).toArray()
 JOIN の評価は `@gasboost/query` が担当します。
 
 ```ts
-const query = new Query<typeof tables, "users">({
-  tableName: "users",
-}).join("id", "reservations", "userId");
+const query = replica.query("users").join("id", "reservations", "userId");
 ```
 
 ```ts
@@ -354,13 +351,16 @@ Replica は `@gasboost/query` に Record を提供するだけです。
 Nested JOIN も `@gasboost/query` によって解決されます。
 
 ```ts
-const reservations = new Query<typeof tables, "reservations">({
-  tableName: "reservations",
-}).join("staffId", "staffs", "id");
+const reservations = replica
+  .query("reservations")
+  .join("staffId", "staffs", "id");
 
-const users = new Query<typeof tables, "users">({
-  tableName: "users",
-}).join("id", "reservations", "userId", reservations);
+const users = replica.query("users").join(
+  "id",
+  "reservations",
+  "userId",
+  reservations,
+);
 ```
 
 ```ts

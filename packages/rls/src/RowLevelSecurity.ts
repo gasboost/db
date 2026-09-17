@@ -1,4 +1,5 @@
-import type { PredicateExpression, TableDefinition } from "./Expression";
+import type { TableDefinition } from "@gasboost/table";
+import type { PredicateExpression } from "./Expression";
 
 export type SelectPolicy<K extends string = string> = {
   readonly using: PredicateExpression<K>;

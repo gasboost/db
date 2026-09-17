@@ -154,13 +154,13 @@ RLSを利用するTable
 ## Installation
 
 ```bash
-pnpm add @gasboost/rls zod
+pnpm add @gasboost/rls @gasboost/table zod
 ```
 
 npm の場合:
 
 ```bash
-npm install @gasboost/rls zod
+npm install @gasboost/rls @gasboost/table zod
 ```
 
 ---
@@ -170,19 +170,21 @@ npm install @gasboost/rls zod
 RLS が必要とする Table 定義は `name` と Zod Schema だけです。
 
 ```ts
+import { defineTable } from "@gasboost/table";
 import { z } from "zod";
 
-const deals = {
+const deals = defineTable({
   name: "deals",
   schema: z.object({
     id: z.string(),
     salesPersonId: z.string(),
     amount: z.number(),
   }),
-} as const;
+});
 ```
 
 Spreadsheet ID、SQL table metadata、Firebase path などのストレージ固有情報は RLS に含みません。
+`primaryKey` が必要な adapter と共有する場合は、同じ定義に `primaryKey` を追加できます。
 
 ---
 

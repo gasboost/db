@@ -29,7 +29,7 @@ RDB のように、同じ Table の中から Security Rules が許可された R
 ## インストール
 
 ```bash
-pnpm add @gasboost/realtime-firebase @gasboost/rls
+pnpm add @gasboost/realtime-firebase @gasboost/rls @gasboost/table zod
 ```
 
 ## 基本的な使い方
@@ -39,6 +39,7 @@ pnpm add @gasboost/realtime-firebase @gasboost/rls
 ```ts
 import { column, eq, principal, RowLevelSecurity } from "@gasboost/rls";
 import { FirebaseRtdb } from "@gasboost/realtime-firebase";
+import { defineTable } from "@gasboost/table";
 import { z } from "zod";
 
 const principalSchema = z.object({
@@ -51,11 +52,11 @@ const dealSchema = z.object({
   title: z.string(),
 });
 
-const deals = {
+const deals = defineTable({
   name: "deals",
   schema: dealSchema,
   primaryKey: "id",
-} as const;
+});
 
 const dealSecurity = new RowLevelSecurity({
   table: deals,

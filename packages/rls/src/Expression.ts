@@ -1,12 +1,5 @@
+import type { TableDefinition } from "@gasboost/table";
 import type { z } from "zod";
-
-export type TableDefinition<
-  N extends string = string,
-  S extends z.ZodObject<any> = z.ZodObject<any>,
-> = {
-  readonly name: N;
-  readonly schema: S;
-};
 
 type PrincipalKeyCarrier<K extends string> = {
   readonly __principalKeys?: K;

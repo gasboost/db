@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/rls",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Type-safe, storage-agnostic Row Level Security authorization AST powered by Zod",
   "repository": {
     "type": "git",
@@ -34,6 +34,12 @@
     "README.md"
   ],
   "dependencies": {
+    "@gasboost/table": "workspace:*"
+  },
+  "peerDependencies": {
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
     "zod": "^4.5.4"
   },
   "scripts": {

@@ -94,7 +94,7 @@ import { SheetDB, SheetGateway, SheetTable } from "@gasboost/sheetorm";
 # Installation
 
 ```bash
-pnpm add @gasboost/sheetorm zod
+pnpm add @gasboost/sheetorm @gasboost/table zod
 
 # Row Level Securityを利用する場合
 pnpm add @gasboost/rls
@@ -103,10 +103,10 @@ pnpm add @gasboost/rls
 npm の場合:
 
 ```bash
-npm install @gasboost/sheetorm zod
+npm install @gasboost/sheetorm @gasboost/table zod
 
 # Row Level Securityを利用する場合
-pnpm add @gasboost/rls
+npm install @gasboost/rls
 ```
 
 ## Requirements
@@ -241,6 +241,7 @@ const gateway = new SheetGateway(Sheets!);
 
 ```ts
 import { z } from "zod";
+import { defineTable } from "@gasboost/table";
 import { SheetDB, SheetGateway, SheetTable } from "@gasboost/sheetorm";
 
 const userSchema = z.object({
@@ -254,11 +255,15 @@ const userSchema = z.object({
   }),
 });
 
-const userTable = new SheetTable({
-  dbId: "SPREADSHEET_ID",
+const userDefinition = defineTable({
   name: "users",
   schema: userSchema,
   primaryKey: "id",
+});
+
+const userTable = new SheetTable({
+  ...userDefinition,
+  dbId: "SPREADSHEET_ID",
   autoNumbering: "increment",
 });
 

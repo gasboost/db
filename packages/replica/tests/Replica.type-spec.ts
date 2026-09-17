@@ -1,10 +1,10 @@
-import { Query } from "@gasboost/query";
 import { z } from "zod";
 import { createReplica } from "../src";
 
 const UserSchema = z.object({
   id: z.string(),
   name: z.string(),
+  active: z.boolean(),
 });
 
 const PostSchema = z.object({
@@ -84,21 +84,23 @@ const replica = createReplica({
 });
 
 async function verifyNoJoin() {
-  const users = await replica.find(new Query<typeof tables, "users">("users"));
+  const users = await replica.find(replica.query("users"));
 
   const id: string = users[0].id;
   const name: string = users[0].name;
+  const active: boolean = users[0].active;
 
   // @ts-expect-error JOIN なしでは relations は存在しない
   users[0].relations;
 
   void id;
   void name;
+  void active;
 }
 
 async function verifyOneJoin() {
   const users = await replica.find(
-    new Query<typeof tables, "users">("users").join("id", "posts", "userId"),
+    replica.query("users").join("id", "posts", "userId"),
   );
 
   const id: string = users[0].id;
@@ -115,7 +117,8 @@ async function verifyOneJoin() {
 
 async function verifyMultipleJoin() {
   const users = await replica.find(
-    new Query<typeof tables, "users">("users")
+    replica
+      .query("users")
       .join("id", "posts", "userId")
       .join("id", "profiles", "userId"),
   );
@@ -129,19 +132,10 @@ async function verifyMultipleJoin() {
 }
 
 async function verifyNestedJoin() {
-  const posts = new Query<typeof tables, "posts">("posts").join(
-    "id",
-    "comments",
-    "postId",
-  );
+  const posts = replica.query("posts").join("id", "comments", "postId");
 
   const users = await replica.find(
-    new Query<typeof tables, "users">("users").join(
-      "id",
-      "posts",
-      "userId",
-      posts,
-    ),
+    replica.query("users").join("id", "posts", "userId", posts),
   );
 
   const postTitle: string = users[0].relations.posts[0].title;
@@ -152,6 +146,14 @@ async function verifyNestedJoin() {
   void postTitle;
   void commentBody;
 }
+
+replica.query("users").and("active", "=", [true]);
+
+// @ts-expect-error unknown table
+replica.query("orders");
+
+// @ts-expect-error unknown column
+replica.query("users").and("unknown", "=", ["value"]);
 
 void verifyNoJoin;
 void verifyOneJoin;

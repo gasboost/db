@@ -17,6 +17,10 @@ importers:
 
   packages/query:
     dependencies:
+      '@gasboost/table':
+        specifier: workspace:*
+        version: link:../table
+    devDependencies:
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -26,9 +30,9 @@ importers:
       '@gasboost/rls':
         specifier: workspace:*
         version: link:../rls
-      zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+      '@gasboost/table':
+        specifier: workspace:*
+        version: link:../table
     devDependencies:
       '@gasboost/fake-node':
         specifier: ^0.1.1
@@ -39,25 +43,35 @@ importers:
       '@types/node':
         specifier: ^26.4.1
         version: 26.4.1
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/replica:
     dependencies:
       '@gasboost/query':
         specifier: workspace:*
         version: link:../query
+      '@gasboost/table':
+        specifier: workspace:*
+        version: link:../table
       dexie:
         specifier: ^4.4.6
         version: 4.4.6
-      zod:
-        specifier: ^4.5.4
-        version: 4.5.4
     devDependencies:
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/rls:
     dependencies:
+      '@gasboost/table':
+        specifier: workspace:*
+        version: link:../table
+    devDependencies:
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -70,9 +84,9 @@ importers:
       '@gasboost/rls':
         specifier: workspace:*
         version: link:../rls
-      zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+      '@gasboost/table':
+        specifier: workspace:*
+        version: link:../table
     devDependencies:
       '@gasboost/fake-core':
         specifier: ^0.1.1
@@ -86,6 +100,15 @@ importers:
       '@types/node':
         specifier: ^26.4.1
         version: 26.4.1
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
+  packages/table:
+    devDependencies:
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
 packages:
 

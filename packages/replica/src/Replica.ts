@@ -1,6 +1,6 @@
 import {
+  Query,
   QueryEvaluation,
-  type Query,
   type QueryJoins,
   type QueryResult,
 } from "@gasboost/query";
@@ -39,6 +39,10 @@ export class Replica<T extends readonly ReplicaTableDefinition[]> {
     return new ReplicaTable(
       this.db.table(name) as Table<ReplicaRecord<T, N>, PrimaryKey<T, N>>,
     );
+  }
+
+  public query<N extends T[number]["name"]>(tableName: N): Query<T, N> {
+    return new Query<T, N>(tableName);
   }
 
   public async sync<N extends T[number]["name"]>(

@@ -1,4 +1,10 @@
-import type { RowLevelSecurity, TableDefinition } from "@gasboost/rls";
+import type {
+  KeyedTableDefinition,
+  TableColumnName,
+  TableRecord,
+  TableRecordByName,
+} from "@gasboost/table";
+import type { RowLevelSecurity } from "@gasboost/rls";
 
 export type FirebaseRtdbPathValue = string | number | boolean;
 
@@ -20,16 +26,10 @@ export type FirebaseRtdbPrincipalValues<
   readonly [K in keyof P]: FirebaseRtdbPathValue;
 };
 
-export type FirebaseRtdbTableDefinition<
-  T extends TableDefinition = TableDefinition,
-> = T & {
-  readonly primaryKey: Extract<keyof T["schema"]["_output"], string>;
-};
+export type FirebaseRtdbTableDefinition = KeyedTableDefinition;
 
 export type FirebaseRtdbValidatedTable<T extends FirebaseRtdbTableDefinition> =
-  T["primaryKey"] extends Extract<keyof T["schema"]["_output"], string>
-    ? T
-    : never;
+  T["primaryKey"] extends TableColumnName<T> ? T : never;
 
 export type FirebaseRtdbValidatedTables<
   T extends readonly FirebaseRtdbTableDefinition[],
@@ -40,7 +40,7 @@ export type FirebaseRtdbValidatedTables<
 };
 
 export type FirebaseRtdbRecord<T extends FirebaseRtdbTableDefinition> =
-  T["schema"]["_output"];
+  TableRecord<T>;
 
 export type FirebaseRtdbConfig<
   T extends readonly FirebaseRtdbTableDefinition[],
@@ -61,6 +61,11 @@ export type FirebaseRtdbTableByName<
   T extends readonly FirebaseRtdbTableDefinition[],
   N extends FirebaseRtdbTableName<T>,
 > = Extract<T[number], { readonly name: N }>;
+
+export type FirebaseRtdbRecordByName<
+  T extends readonly FirebaseRtdbTableDefinition[],
+  N extends FirebaseRtdbTableName<T>,
+> = TableRecordByName<T, N>;
 
 export type FirebaseRtdbCompiledValue = {
   readonly expression: string;

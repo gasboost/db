@@ -18,6 +18,7 @@ jobs:
       contents: read
 
     outputs:
+      publish-table: ${{ steps.versions.outputs.publish-table }}
       publish-sheetorm: ${{ steps.versions.outputs.publish-sheetorm }}
       publish-query: ${{ steps.versions.outputs.publish-query }}
       publish-replica: ${{ steps.versions.outputs.publish-replica }}
@@ -57,6 +58,7 @@ jobs:
             fi
           }
 
+          check_package publish-table packages/table/package.json
           check_package publish-query packages/query/package.json
           check_package publish-replica packages/replica/package.json
           check_package publish-sheetorm packages/sheetorm/package.json
@@ -65,7 +67,7 @@ jobs:
 
   publish:
     needs: check-versions
-    if: ${{ needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+    if: ${{ needs.check-versions.outputs.publish-table == 'true' || needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
     runs-on: ubuntu-latest
 
     permissions:
@@ -90,6 +92,31 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # @gasboost/table はほぼ全 package の workspace dependency。
+      # 依存先 package の typecheck/build より先に dist を生成する。
+      - name: Typecheck table
+        if: ${{ needs.check-versions.outputs.publish-table == 'true' }}
+        run: pnpm --filter @gasboost/table typecheck
+
+      - name: Test table
+        if: ${{ needs.check-versions.outputs.publish-table == 'true' }}
+        run: pnpm --filter @gasboost/table test
+
+      - name: Build table
+        if: ${{ needs.check-versions.outputs.publish-table == 'true' || needs.check-versions.outputs.publish-query == 'true' || needs.check-versions.outputs.publish-replica == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+        run: pnpm --filter @gasboost/table build
+
+      - name: Verify table package contents
+        if: ${{ needs.check-versions.outputs.publish-table == 'true' }}
+        working-directory: packages/table
+        run: pnpm pack
+
+      # 依存元を先に publish する。
+      - name: Publish table
+        if: ${{ needs.check-versions.outputs.publish-table == 'true' }}
+        working-directory: packages/table
+        run: pnpm publish --access public --no-git-checks
 
       # @gasboost/rls は sheetorm / realtime-firebase の workspace dependency。
       # 依存先 package の build より先に dist を生成する。

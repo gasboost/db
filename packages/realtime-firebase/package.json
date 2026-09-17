@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/realtime-firebase",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Compile @gasboost/rls policies into Firebase Realtime Database Security Rules",
   "repository": {
     "type": "git",
@@ -35,7 +35,7 @@
   ],
   "dependencies": {
     "@gasboost/rls": "workspace:*",
-    "zod": "^4.5.4"
+    "@gasboost/table": "workspace:*"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -49,6 +49,7 @@
   "devDependencies": {
     "@gasboost/fake-node": "^0.1.1",
     "@types/google-apps-script": "^2.0.12",
-    "@types/node": "^26.4.1"
+    "@types/node": "^26.4.1",
+    "zod": "^4.5.4"
   }
 }

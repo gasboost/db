@@ -1,23 +1,22 @@
-import type { TableDefinition } from "@gasboost/query";
-import type { z } from "zod";
+import type {
+  KeyedTableDefinition,
+  TableByName,
+  TableColumnName,
+  TableRecordByName,
+} from "@gasboost/table";
 
 export type ReplicaTableDefinition<
   N extends string = string,
-  S extends z.ZodObject<any> = z.ZodObject<any>,
-  PK extends Extract<keyof z.infer<S>, string> = Extract<
-    keyof z.infer<S>,
-    string
-  >,
-> = TableDefinition<N, S> & {
-  readonly primaryKey: PK;
-};
+  S extends KeyedTableDefinition["schema"] = KeyedTableDefinition["schema"],
+  PK extends KeyedTableDefinition<N, S>["primaryKey"] = KeyedTableDefinition<
+    N,
+    S
+  >["primaryKey"],
+> = KeyedTableDefinition<N, S, PK>;
 
 export type ValidReplicaTables<T extends readonly ReplicaTableDefinition[]> = {
-  readonly [K in keyof T]: T[K] extends {
-    readonly schema: infer S extends z.ZodObject<any>;
-    readonly primaryKey: infer PK;
-  }
-    ? PK extends Extract<keyof z.infer<S>, string>
+  readonly [K in keyof T]: T[K] extends ReplicaTableDefinition
+    ? T[K]["primaryKey"] extends TableColumnName<T[K]>
       ? T[K]
       : never
     : never;
@@ -26,9 +25,9 @@ export type ValidReplicaTables<T extends readonly ReplicaTableDefinition[]> = {
 export type ReplicaTableByName<
   T extends readonly ReplicaTableDefinition[],
   N extends T[number]["name"],
-> = Extract<T[number], { name: N }>;
+> = TableByName<T, N>;
 
 export type ReplicaRecord<
   T extends readonly ReplicaTableDefinition[],
   N extends T[number]["name"],
-> = z.infer<ReplicaTableByName<T, N>["schema"]>;
+> = TableRecordByName<T, N>;

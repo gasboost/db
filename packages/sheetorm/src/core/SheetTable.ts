@@ -1,3 +1,4 @@
+import type { KeyedTableDefinition } from "@gasboost/table";
 import { z, ZodObject, ZodRawShape } from "zod";
 import { SheetCache } from "../storage/SheetCache";
 import { Relationable } from "./Relationable";
@@ -5,16 +6,16 @@ import { OnDeleteAction, SheetRelation } from "./SheetRelation";
 
 export type AutoNumberingMode = "increment" | "uuid";
 
-export type Columns<Z extends ZodObject<any>> = keyof z.infer<Z>;
+export type Columns<Z extends ZodObject<any>> = Extract<
+  keyof z.infer<Z>,
+  string
+>;
 
 export type SheetTableConfig<
   N extends string,
   Z extends ZodObject<ZodRawShape>,
-> = {
+> = KeyedTableDefinition<N, Z> & {
   dbId: string;
-  name: N;
-  schema: Z;
-  primaryKey: Columns<Z>;
   autoNumbering?: AutoNumberingMode;
   versionColumn?: Columns<Z>;
 };

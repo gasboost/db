@@ -1,3 +1,4 @@
+import type { FirebaseRtdbBinding } from "./FirebaseRtdbBinding";
 import { FirebaseRtdbLayout } from "./FirebaseRtdbLayout";
 import { FirebaseRtdbPathSegment } from "./FirebaseRtdbPathSegment";
 import type {
@@ -5,6 +6,7 @@ import type {
   FirebaseRtdbPrincipalMapping,
   FirebaseRtdbPrincipalValues,
   FirebaseRtdbRecord,
+  FirebaseRtdbRecordResolutionContext,
   FirebaseRtdbTableDefinition,
 } from "./FirebaseRtdbTypes";
 
@@ -18,8 +20,11 @@ export class FirebaseRtdbTable<
     this.tableLayout = layout;
   }
 
-  public record(record: FirebaseRtdbRecord<T>): string {
-    const segments = this.recordSegments(record);
+  public record(
+    record: FirebaseRtdbRecord<T>,
+    context?: FirebaseRtdbRecordResolutionContext,
+  ): string {
+    const segments = this.recordSegments(record, context);
 
     return `/${segments.join("/")}`;
   }
@@ -36,7 +41,10 @@ export class FirebaseRtdbTable<
     return `/${segments.join("/")}`;
   }
 
-  public recordSegments(record: FirebaseRtdbRecord<T>): readonly string[] {
+  public recordSegments(
+    record: FirebaseRtdbRecord<T>,
+    context?: FirebaseRtdbRecordResolutionContext,
+  ): readonly string[] {
     const segments: string[] = [
       FirebaseRtdbPathSegment.generate(this.tableLayout.tableName()).toString(),
     ];
@@ -45,30 +53,22 @@ export class FirebaseRtdbTable<
       segments.push("__rls");
     }
 
+    const resolvedRelations = new Map<
+      string,
+      Readonly<Record<string, unknown>>
+    >();
+
     for (const binding of this.tableLayout.bindings()) {
       segments.push(
         FirebaseRtdbPathSegment.generate(binding.column()).toString(),
       );
 
-      const value = record[binding.column()];
-
-      if (
-        typeof value !== "string" &&
-        typeof value !== "number" &&
-        typeof value !== "boolean"
-      ) {
-        throw new Error(
-          `RLS partition column '${binding.column()}' on table '${this.tableLayout.tableName()}' must be a string, number, or boolean.`,
-        );
-      }
-
-      const source = binding.source();
-
-      if (source.type === "literal" && value !== source.value) {
-        throw new Error(
-          `RLS partition column '${binding.column()}' must equal ${JSON.stringify(source.value)}.`,
-        );
-      }
+      const value = this.resolveBindingValue({
+        binding,
+        record,
+        context,
+        resolvedRelations,
+      });
 
       segments.push(FirebaseRtdbPathSegment.generate(value).toString());
     }
@@ -77,11 +77,7 @@ export class FirebaseRtdbTable<
 
     const primaryKeyValue = record[primaryKey];
 
-    if (
-      typeof primaryKeyValue !== "string" &&
-      typeof primaryKeyValue !== "number" &&
-      typeof primaryKeyValue !== "boolean"
-    ) {
+    if (!this.isPathValue(primaryKeyValue)) {
       throw new Error(
         `Primary key '${primaryKey}' on table '${this.tableLayout.tableName()}' must be a string, number, or boolean.`,
       );
@@ -120,11 +116,7 @@ export class FirebaseRtdbTable<
 
       const value = principal[source.key];
 
-      if (
-        typeof value !== "string" &&
-        typeof value !== "number" &&
-        typeof value !== "boolean"
-      ) {
+      if (!this.isPathValue(value)) {
         throw new Error(
           `Principal '${source.key}' is required to generate the RTDB scope for table '${this.tableLayout.tableName()}'.`,
         );
@@ -142,5 +134,127 @@ export class FirebaseRtdbTable<
 
   public layout(): FirebaseRtdbLayout<T> {
     return this.tableLayout;
+  }
+
+  private resolveBindingValue({
+    binding,
+    record,
+    context,
+    resolvedRelations,
+  }: {
+    binding: FirebaseRtdbBinding;
+    record: FirebaseRtdbRecord<T>;
+    context?: FirebaseRtdbRecordResolutionContext;
+    resolvedRelations: Map<string, Readonly<Record<string, unknown>>>;
+  }): FirebaseRtdbPathValue {
+    if (binding.type() === "direct") {
+      const value = record[binding.column()];
+
+      if (!this.isPathValue(value)) {
+        throw new Error(
+          `RLS partition column '${binding.column()}' on table '${this.tableLayout.tableName()}' must be a string, number, or boolean.`,
+        );
+      }
+
+      this.ensureLiteral(binding, value);
+
+      return value;
+    }
+
+    const relation = binding.relation();
+
+    if (relation === null) {
+      throw new Error("Expected relation RTDB binding.");
+    }
+
+    if (context === undefined) {
+      throw new Error(
+        `RLS relation partition '${relation.fromTable}.${relation.foreignKey} -> ${relation.toTable}.${relation.targetKey}' requires a relation resolver to generate a record path.`,
+      );
+    }
+
+    const foreignKeyValue = record[relation.foreignKey];
+
+    if (!this.isPathValue(foreignKeyValue)) {
+      throw new Error(
+        `RLS relation foreign key '${relation.foreignKey}' on table '${relation.fromTable}' must be a string, number, or boolean.`,
+      );
+    }
+
+    const cacheKey = JSON.stringify([
+      relation.toTable,
+      relation.targetKey,
+      typeof foreignKeyValue,
+      foreignKeyValue,
+    ]);
+
+    let relatedRecord = resolvedRelations.get(cacheKey);
+
+    if (relatedRecord === undefined) {
+      const resolved = context.resolve({
+        table: relation.targetTable,
+        primaryKey: relation.targetKey,
+        value: foreignKeyValue,
+      });
+
+      if (
+        resolved !== null &&
+        typeof resolved === "object" &&
+        "then" in resolved &&
+        typeof (resolved as { then?: unknown }).then === "function"
+      ) {
+        throw new Error(
+          "FirebaseRtdbTable.record() requires a synchronous relation resolver.",
+        );
+      }
+
+      if (resolved === null || resolved === undefined) {
+        throw new Error(
+          `Related record '${relation.toTable}.${relation.targetKey}=${String(foreignKeyValue)}' was not found while generating the RTDB path for table '${relation.fromTable}'.`,
+        );
+      }
+
+      relatedRecord = resolved;
+      resolvedRelations.set(cacheKey, relatedRecord);
+    }
+
+    if (relatedRecord[relation.targetKey] !== foreignKeyValue) {
+      throw new Error(
+        `Resolved relation record '${relation.toTable}' does not match '${relation.targetKey}=${String(foreignKeyValue)}'.`,
+      );
+    }
+
+    const value = relatedRecord[relation.targetColumn];
+
+    if (!this.isPathValue(value)) {
+      throw new Error(
+        `RLS relation partition column '${relation.toTable}.${relation.targetColumn}' must be a string, number, or boolean.`,
+      );
+    }
+
+    this.ensureLiteral(binding, value);
+
+    return value;
+  }
+
+  private ensureLiteral(
+    binding: FirebaseRtdbBinding,
+    value: FirebaseRtdbPathValue,
+  ): void {
+    const source = binding.source();
+
+    if (source.type === "literal" && value !== source.value) {
+      throw new Error(
+        `RLS partition column '${binding.column()}' must equal ${JSON.stringify(source.value)}.`,
+      );
+    }
+  }
+
+  private isPathValue(value: unknown): value is FirebaseRtdbPathValue {
+    return (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    );
   }
 }

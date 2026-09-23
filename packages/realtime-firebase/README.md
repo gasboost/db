@@ -760,15 +760,280 @@ public
 
 複数の認可空間を横断する必要があるため、現在 `select.using` に `or()` が含まれる場合は projectability error とします。
 
-### `exists()`
+## Relation-aware RLS
 
-`exists()` は、参照先 Table の安全な RTDB layout を一意に解決できる仕組みがまだないため、現在は明示的に error とします。
+子 Table の認可条件が、親 Table の属性によって決まる場合があります。
 
-permissive rule へ変換することはありません。
+例えば、次のような2つの Table があるとします。
 
-### `outerColumn()`
+```ts
+import { defineTable } from "@gasboost/table";
+import { z } from "zod";
 
-`outerColumn()` も、相関した外側 Record の値を安全に RTDB Rules 上へ投影する仕組みがまだないため、現在は明示的に error とします。
+const parents = defineTable({
+  name: "parents",
+  schema: z.object({
+    id: z.string(),
+    ownerId: z.string(),
+    name: z.string(),
+  }),
+  primaryKey: "id",
+});
+
+const children = defineTable({
+  name: "children",
+  schema: z.object({
+    id: z.string(),
+    parentId: z.string(),
+    value: z.string(),
+  }),
+  primaryKey: "id",
+});
+```
+
+`children` 自体は `ownerId` を持ちません。
+
+所有者は親 Record である `parents.ownerId` によって決まります。
+
+```text
+children.parentId
+        ↓
+parents.id
+        ↓
+parents.ownerId
+        ↓
+principal.userId
+```
+
+このような認可は `exists()` と `outerColumn()` を使って表現できます。
+
+```ts
+import {
+  and,
+  column,
+  eq,
+  exists,
+  outerColumn,
+  principal,
+  RowLevelSecurity,
+} from "@gasboost/rls";
+import { z } from "zod";
+
+const principalSchema = z.object({
+  userId: z.string(),
+});
+
+const childSecurity = new RowLevelSecurity({
+  table: children,
+
+  select: {
+    using: exists(
+      parents,
+      and(
+        eq(column(parents, "id"), outerColumn(children, "parentId")),
+        eq(column(parents, "ownerId"), principal(principalSchema, "userId")),
+      ),
+    ),
+  },
+});
+```
+
+`outerColumn(children, "parentId")` は、`exists(parents, ...)` の外側にある現在の child Record の値を表します。
+
+この定義から、`@gasboost/realtime-firebase` は single-hop relation を認可用の RTDB layout へ投影します。
+
+```ts
+const rtdb = FirebaseRtdb.generate({
+  tables: [parents, children] as const,
+  rowLevelSecurity: [childSecurity],
+
+  principal: {
+    userId: "auth.uid",
+  },
+});
+```
+
+### Record path
+
+relation-aware な Table では、partition に必要な値が child Record 自体には存在しない場合があります。
+
+その場合は、関連 Record を解決する resolver を `record()` に渡します。
+
+```ts
+const child = {
+  id: "child-1",
+  parentId: "parent-1",
+  value: "example",
+};
+
+const path = rtdb.children.record(child, {
+  resolve: ({ table, primaryKey, value }) => {
+    if (
+      table.name === "parents" &&
+      primaryKey === "id" &&
+      value === "parent-1"
+    ) {
+      return {
+        id: "parent-1",
+        ownerId: "user-1",
+        name: "Parent",
+      };
+    }
+
+    return null;
+  },
+});
+```
+
+例えば次の path が生成されます。
+
+```text
+/children/__rls/ownerId/user-1/child-1
+```
+
+resolver は storage-agnostic です。
+
+`@gasboost/realtime-firebase` 自身は、SheetORM、Replica、Firebase SDK などから Record を取得しません。
+
+関連 Record の取得方法は利用側が決定します。
+
+```text
+application
+    ↓
+resolver
+    ↓
+SheetORM / repository / cache / other storage
+```
+
+relation-aware policy が必要なのに resolver が指定されていない場合、または関連 Record が見つからない場合は明示的に失敗します。
+
+### Subscription scope
+
+subscription scope は child Record を必要としません。
+
+Principal の値だけから生成できます。
+
+```ts
+const scope = rtdb.children.scope({
+  userId: "user-1",
+});
+```
+
+生成される scope:
+
+```text
+/children/__rls/ownerId/user-1
+```
+
+つまり、
+
+```text
+record path
+= child relation を resolver で辿って partition を決定
+
+scope path
+= Principal から同じ partition を決定
+```
+
+となります。
+
+両方とも同じ authorization layout metadata を利用します。
+
+### Canonical Table schema
+
+relation-aware RLS のためだけに、親の認可属性を child Table へ複製する必要はありません。
+
+例えば、次のような schema にする必要はありません。
+
+```ts
+const children = defineTable({
+  name: "children",
+  schema: z.object({
+    id: z.string(),
+    parentId: z.string(),
+
+    // RTDB authorization のためだけの重複 column
+    ownerId: z.string(),
+
+    value: z.string(),
+  }),
+  primaryKey: "id",
+});
+```
+
+application の canonical schema は正規化したまま維持できます。
+
+```text
+Domain / canonical Table schema
+!=
+RTDB authorization layout
+```
+
+Firebase Realtime Database 固有の認可用非正規化は `@gasboost/realtime-firebase` が担当します。
+
+### Projectable pattern
+
+現在 relation-aware subscription scope として投影できるのは、single-hop で一意に解決できる relation です。
+
+基本形は次の通りです。
+
+```ts
+exists(
+  parentTable,
+  and(
+    eq(
+      column(parentTable, parentPrimaryKey),
+      outerColumn(childTable, childForeignKey),
+    ),
+    eq(
+      column(parentTable, partitionColumn),
+      principal(principalSchema, principalKey),
+    ),
+  ),
+);
+```
+
+equality の左右を逆にしても同じ relation として扱われます。
+
+```ts
+eq(
+  outerColumn(childTable, childForeignKey),
+  column(parentTable, parentPrimaryKey),
+);
+```
+
+partition source には Principal だけでなく literal も利用できます。
+
+```ts
+exists(
+  parents,
+  and(
+    eq(column(parents, "id"), outerColumn(children, "parentId")),
+    eq(column(parents, "status"), literal("active")),
+  ),
+);
+```
+
+### Projectability and fail closed
+
+relation を安全かつ一意に RTDB layout へ投影できない場合、`@gasboost/realtime-firebase` は明示的に失敗します。
+
+例えば以下は permissive に fallback しません。
+
+- referenced Table が RTDB に登録されていない
+- `outerColumn()` が現在の child Table を参照していない
+- `column()` が `exists()` の対象 Table を参照していない
+- relation target が parent primary key ではない
+- relation equality を一意に決定できない
+- conflicting partition が存在する
+- relation cycle が発生する
+- multi-hop relation が必要になる
+- relation resolver が指定されていない
+- resolver が関連 Record を解決できない
+
+unsupported な relation を認可条件から無視したり、`true` に変換したりすることはありません。
+
+常に fail closed します。
 
 ## Record identity
 

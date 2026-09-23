@@ -1,10 +1,10 @@
+import type { RowLevelSecurity } from "@gasboost/rls";
 import type {
   KeyedTableDefinition,
   TableColumnName,
   TableRecord,
   TableRecordByName,
 } from "@gasboost/table";
-import type { RowLevelSecurity } from "@gasboost/rls";
 
 export type FirebaseRtdbPathValue = string | number | boolean;
 
@@ -82,15 +82,35 @@ export type FirebaseRtdbRulesJson = {
 
 export type FirebaseRtdbSnapshotKind = "current" | "next";
 
+export type FirebaseRtdbLayoutResolver = (
+  tableName: string,
+) => import("./FirebaseRtdbLayout").FirebaseRtdbLayout;
+
 export type FirebaseRtdbCompilationContext =
   | {
       readonly type: "scope";
       readonly principal: FirebaseRtdbPrincipalMapping;
       readonly variables: ReadonlyMap<string, string>;
       readonly layout: import("./FirebaseRtdbLayout").FirebaseRtdbLayout;
+      readonly resolveLayout?: FirebaseRtdbLayoutResolver;
     }
   | {
       readonly type: FirebaseRtdbSnapshotKind;
       readonly principal: FirebaseRtdbPrincipalMapping;
       readonly layout: import("./FirebaseRtdbLayout").FirebaseRtdbLayout;
+      readonly resolveLayout?: FirebaseRtdbLayoutResolver;
     };
+
+export type FirebaseRtdbRelationResolveRequest = {
+  readonly table: FirebaseRtdbTableDefinition;
+  readonly primaryKey: string;
+  readonly value: FirebaseRtdbPathValue;
+};
+
+export type FirebaseRtdbRelationResolver = (
+  request: FirebaseRtdbRelationResolveRequest,
+) => Readonly<Record<string, unknown>> | null | undefined;
+
+export type FirebaseRtdbRecordResolutionContext = {
+  readonly resolve: FirebaseRtdbRelationResolver;
+};

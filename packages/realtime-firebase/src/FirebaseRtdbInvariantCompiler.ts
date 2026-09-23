@@ -1,12 +1,30 @@
 import { FirebaseRtdbLayout } from "./FirebaseRtdbLayout";
+import { FirebaseRtdbRelationCompiler } from "./FirebaseRtdbRelationCompiler";
 import { FirebaseRtdbRuleLiteral } from "./FirebaseRtdbRuleLiteral";
-import type { FirebaseRtdbSnapshotKind } from "./FirebaseRtdbTypes";
+import type {
+  FirebaseRtdbLayoutResolver,
+  FirebaseRtdbPrincipalMapping,
+  FirebaseRtdbSnapshotKind,
+} from "./FirebaseRtdbTypes";
 
 export class FirebaseRtdbInvariantCompiler {
   private readonly layoutDefinition: FirebaseRtdbLayout;
+  private readonly principalMapping: FirebaseRtdbPrincipalMapping;
+  private readonly resolveLayout?: FirebaseRtdbLayoutResolver;
 
-  public constructor(layout: FirebaseRtdbLayout) {
+  public constructor(
+    layout: FirebaseRtdbLayout,
+    {
+      principal = {},
+      resolveLayout,
+    }: {
+      principal?: FirebaseRtdbPrincipalMapping;
+      resolveLayout?: FirebaseRtdbLayoutResolver;
+    } = {},
+  ) {
     this.layoutDefinition = layout;
+    this.principalMapping = principal;
+    this.resolveLayout = resolveLayout;
   }
 
   public compile(snapshot: FirebaseRtdbSnapshotKind): string {
@@ -16,7 +34,33 @@ export class FirebaseRtdbInvariantCompiler {
       `$recordId === (${source}.child(${JSON.stringify(this.layoutDefinition.primaryKey())}).val() + '')`,
     ];
 
+    const compiledRelations = new Set<object>();
+
     this.layoutDefinition.bindings().forEach((binding, index) => {
+      if (binding.type() === "relation") {
+        const origin = binding.origin();
+
+        if (origin === null || compiledRelations.has(origin)) {
+          return;
+        }
+
+        compiledRelations.add(origin);
+
+        const relationBindings =
+          this.layoutDefinition.relationBindingsFor(origin);
+
+        conditions.push(
+          new FirebaseRtdbRelationCompiler({
+            type: snapshot,
+            layout: this.layoutDefinition,
+            principal: this.principalMapping,
+            resolveLayout: this.resolveLayout,
+          }).compileRecord(relationBindings, snapshot),
+        );
+
+        return;
+      }
+
       const sourceDefinition = binding.source();
 
       const value = `${source}.child(${JSON.stringify(binding.column())}).val()`;

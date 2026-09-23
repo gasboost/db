@@ -47,6 +47,32 @@ export class FirebaseRtdbValueCompiler {
     }
   }
 
+  public compileOuterColumn(
+    expression: Extract<
+      ValueExpression<unknown>,
+      { readonly type: "outerColumn" }
+    >,
+  ): FirebaseRtdbCompiledValue {
+    if (this.context.type === "scope") {
+      throw new Error(
+        `outerColumn('${expression.table}.${expression.column}') cannot be resolved from an RTDB subscription scope.`,
+      );
+    }
+
+    if (expression.table !== this.context.layout.tableName()) {
+      throw new Error(
+        `Outer column '${expression.table}.${expression.column}' cannot be resolved from RTDB table '${this.context.layout.tableName()}'.`,
+      );
+    }
+
+    const source = this.context.type === "current" ? "data" : "newData";
+
+    return {
+      expression: `${source}.child(${JSON.stringify(expression.column)}).val()`,
+      pathString: false,
+    };
+  }
+
   public compileColumn(
     expression: Extract<ValueExpression<unknown>, { readonly type: "column" }>,
   ): FirebaseRtdbCompiledValue {

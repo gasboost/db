@@ -1,4 +1,4 @@
-import type { RowLevelSecurity } from "@gasboost/rls";
+import type { ExistsExpression, RowLevelSecurity } from "@gasboost/rls";
 import { FirebaseRtdbBinding } from "./FirebaseRtdbBinding";
 import { FirebaseRtdbScopeProjector } from "./FirebaseRtdbScopeProjector";
 import type { FirebaseRtdbTableDefinition } from "./FirebaseRtdbTypes";
@@ -31,9 +31,11 @@ export class FirebaseRtdbLayout<
   public static generate<T extends FirebaseRtdbTableDefinition>({
     table,
     policy,
+    tables = [table],
   }: {
     table: T;
     policy: RowLevelSecurity<T> | null;
+    tables?: readonly FirebaseRtdbTableDefinition[];
   }): FirebaseRtdbLayout<T> {
     if (policy === null) {
       return new FirebaseRtdbLayout({
@@ -53,9 +55,9 @@ export class FirebaseRtdbLayout<
       });
     }
 
-    const projector = new FirebaseRtdbScopeProjector();
+    const projector = new FirebaseRtdbScopeProjector(tables);
 
-    const bindings = projector.project(policy.select.using, table.name);
+    const bindings = projector.project(policy.select.using, table);
 
     return new FirebaseRtdbLayout({
       table,
@@ -85,11 +87,26 @@ export class FirebaseRtdbLayout<
     return this.partitionBindings;
   }
 
+  public relationBindingsFor(
+    expression: ExistsExpression,
+  ): readonly FirebaseRtdbBinding[] {
+    return this.partitionBindings.filter(
+      (binding) =>
+        binding.type() === "relation" && binding.origin() === expression,
+    );
+  }
+
   public readable(): boolean {
     return this.readableScope;
   }
 
   public hasSecurity(): boolean {
     return this.securityPolicy !== null;
+  }
+
+  public hasRelationBindings(): boolean {
+    return this.partitionBindings.some(
+      (binding) => binding.type() === "relation",
+    );
   }
 }

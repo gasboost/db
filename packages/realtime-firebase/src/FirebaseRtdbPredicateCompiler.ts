@@ -1,5 +1,6 @@
-import type { PredicateExpression } from "@gasboost/rls";
+import type { ExistsExpression, PredicateExpression } from "@gasboost/rls";
 import { FirebaseRtdbPredicateInspector } from "./FirebaseRtdbPredicateInspector";
+import { FirebaseRtdbRelationCompiler } from "./FirebaseRtdbRelationCompiler";
 import type { FirebaseRtdbCompilationContext } from "./FirebaseRtdbTypes";
 import { FirebaseRtdbValueCompiler } from "./FirebaseRtdbValueCompiler";
 
@@ -49,9 +50,7 @@ export class FirebaseRtdbPredicateCompiler {
           .join(" || ");
 
       case "exists":
-        throw new Error(
-          "exists() cannot currently be compiled to Firebase RTDB Security Rules.",
-        );
+        return this.compileExists(predicate);
     }
   }
 
@@ -74,5 +73,23 @@ export class FirebaseRtdbPredicateCompiler {
     }
 
     return `${leftValue.expression} === ${rightValue.expression}`;
+  }
+
+  public compileExists(expression: ExistsExpression): string {
+    const bindings = this.context.layout.relationBindingsFor(expression);
+
+    if (bindings.length === 0) {
+      throw new Error(
+        "exists() cannot currently be compiled to Firebase RTDB Security Rules.",
+      );
+    }
+
+    const compiler = new FirebaseRtdbRelationCompiler(this.context);
+
+    if (this.context.type === "scope") {
+      return compiler.compileScope(bindings);
+    }
+
+    return compiler.compileRecord(bindings, this.context.type);
   }
 }

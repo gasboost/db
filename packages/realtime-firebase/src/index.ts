@@ -7,6 +7,7 @@ export * from "./FirebaseRtdbPathSegment";
 export * from "./FirebaseRtdbPredicateCompiler";
 export * from "./FirebaseRtdbPredicateInspector";
 export * from "./FirebaseRtdbPrincipalValidator";
+export * from "./FirebaseRtdbRelationCompiler";
 export * from "./FirebaseRtdbRuleLiteral";
 export * from "./FirebaseRtdbRulesCompiler";
 export * from "./FirebaseRtdbRulesLocation";

@@ -80,6 +80,7 @@ export class FirebaseRtdb<
       const layout = FirebaseRtdbLayout.generate({
         table,
         policy,
+        tables,
       });
 
       layouts.set(table.name, layout);
@@ -89,6 +90,9 @@ export class FirebaseRtdb<
 
     this.layoutRegistry = layouts;
     this.tableRegistry = tablesRegistry;
+
+    this.ensureRelationProjectionAcyclic();
+    this.ensureSingleHopRelationTargets();
   }
 
   public static generate<
@@ -180,6 +184,81 @@ export class FirebaseRtdb<
         throw new Error(
           `Row Level Security references table '${policy.table.name}', but that table is not registered in Firebase RTDB.`,
         );
+      }
+    }
+  }
+
+  public ensureRelationProjectionAcyclic(): void {
+    const graph = new Map<string, Set<string>>();
+
+    for (const [tableName, layout] of this.layoutRegistry) {
+      const targets = new Set<string>();
+
+      for (const binding of layout.bindings()) {
+        const relation = binding.relation();
+
+        if (relation !== null) {
+          targets.add(relation.toTable);
+        }
+      }
+
+      graph.set(tableName, targets);
+    }
+
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+
+    const visit = (tableName: string, path: readonly string[]): void => {
+      if (visiting.has(tableName)) {
+        const start = path.indexOf(tableName);
+        const cycle = [...path.slice(start), tableName];
+
+        throw new Error(
+          `RTDB relation projection contains a cycle: ${cycle.join(" -> ")}.`,
+        );
+      }
+
+      if (visited.has(tableName)) {
+        return;
+      }
+
+      visiting.add(tableName);
+
+      for (const target of graph.get(tableName) ?? []) {
+        visit(target, [...path, tableName]);
+      }
+
+      visiting.delete(tableName);
+      visited.add(tableName);
+    };
+
+    for (const tableName of graph.keys()) {
+      visit(tableName, []);
+    }
+  }
+
+  public ensureSingleHopRelationTargets(): void {
+    for (const layout of this.layoutRegistry.values()) {
+      for (const binding of layout.bindings()) {
+        const relation = binding.relation();
+
+        if (relation === null) {
+          continue;
+        }
+
+        const target = this.layoutRegistry.get(relation.toTable);
+
+        if (target === undefined) {
+          throw new Error(
+            `RTDB relation references unregistered table '${relation.toTable}'.`,
+          );
+        }
+
+        if (target.hasRelationBindings()) {
+          throw new Error(
+            `RTDB relation from '${relation.fromTable}' to '${relation.toTable}' would require multi-hop relation projection, which is not currently supported.`,
+          );
+        }
       }
     }
   }

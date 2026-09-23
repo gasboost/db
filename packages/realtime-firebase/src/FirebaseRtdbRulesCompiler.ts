@@ -18,6 +18,7 @@ export class FirebaseRtdbRulesCompiler {
     >,
   ): FirebaseRtdbRulesJson {
     const root = new FirebaseRtdbRulesNode();
+    const resolveLayout = (tableName: string) => rtdb.layout(tableName);
 
     for (const table of rtdb.tables()) {
       const layout = rtdb.layout(table.name);
@@ -48,6 +49,7 @@ export class FirebaseRtdbRulesCompiler {
           layout,
           principal: rtdb.principal(),
           variables: location.variables(),
+          resolveLayout,
         });
 
         scopeNode.set(
@@ -65,6 +67,7 @@ export class FirebaseRtdbRulesCompiler {
           type: "current",
           layout,
           principal: rtdb.principal(),
+          resolveLayout,
         });
 
         recordNode.set(
@@ -78,12 +81,16 @@ export class FirebaseRtdbRulesCompiler {
         new FirebaseRtdbWriteRuleCompiler({
           layout,
           principal: rtdb.principal(),
+          resolveLayout,
         }).compile(),
       );
 
       recordNode.set(
         ".validate",
-        new FirebaseRtdbInvariantCompiler(layout).compile("next"),
+        new FirebaseRtdbInvariantCompiler(layout, {
+          principal: rtdb.principal(),
+          resolveLayout,
+        }).compile("next"),
       );
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/realtime-firebase",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Compile @gasboost/rls policies into Firebase Realtime Database Security Rules",
   "repository": {
     "type": "git",

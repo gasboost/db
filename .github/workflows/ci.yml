@@ -116,10 +116,14 @@ jobs:
           import {
           FirebaseCustomToken,
           FirebaseRtdb,
+          FirebaseRtdbRestTransport,
+          PropertiesVersionStore,
           } from "@gasboost/realtime-firebase";
 
           void FirebaseCustomToken;
           void FirebaseRtdb;
+          void FirebaseRtdbRestTransport;
+          void PropertiesVersionStore;
           EOF
 
           cat > tsconfig.json <<'EOF'
@@ -170,6 +174,8 @@ jobs:
           RLS_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-rls-*.tgz' -print -quit)"
           SHEETORM_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-sheetorm-*.tgz' -print -quit)"
 
+          REALTIME_FIREBASE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-realtime-firebase-*.tgz' -print -quit)"
+
           rm -rf /tmp/sheetorm-consumer
           mkdir -p /tmp/sheetorm-consumer
           cd /tmp/sheetorm-consumer
@@ -194,8 +200,8 @@ jobs:
             );
           "
 
-          pnpm add "$SHEETORM_PACKAGE_FILE"
-          pnpm add -D typescript @types/google-apps-script
+          pnpm add "$SHEETORM_PACKAGE_FILE" "$REALTIME_FIREBASE_PACKAGE_FILE" "$TABLE_PACKAGE_FILE"
+          pnpm add -D typescript @types/google-apps-script zod
 
           cat > index.ts <<'EOF'
           import {
@@ -203,6 +209,45 @@ jobs:
             SheetGateway,
             SheetTable,
           } from "@gasboost/sheetorm";
+
+          import { defineTable } from "@gasboost/table";
+          import { z } from "zod";
+          import {
+            FirebaseRtdb,
+            FirebaseRtdbRestTransport,
+            PropertiesVersionStore,
+          } from "@gasboost/realtime-firebase";
+
+          function configureSync() {
+            const employees = defineTable({
+              name: "employees",
+              primaryKey: "id",
+              schema: z.object({ id: z.string(), name: z.string() }),
+            });
+            const tables = [new SheetTable({ ...employees, dbId: "SPREADSHEET_ID" })] as const;
+            const rtdb = new FirebaseRtdb({
+              tables,
+              rowLevelSecurity: [],
+              principal: { userId: "auth.uid" },
+              versionStore: new PropertiesVersionStore(PropertiesService.getScriptProperties()),
+              transport: new FirebaseRtdbRestTransport({
+                databaseUrl: "https://YOUR_DATABASE_URL",
+                urlFetchApp: UrlFetchApp,
+                getAccessToken: () => ScriptApp.getOAuthToken(),
+              }),
+            });
+            const db = new SheetDB({
+              tables,
+              gateway: new SheetGateway(Sheets!),
+              cacheService: CacheService,
+              utilities: Utilities,
+              afterCommit: changes => rtdb.publish(changes),
+            });
+            db.table("employees").create([{ id: "e1", name: "田中" }]);
+            db.table("employees").update([{ id: "e1", name: "田中太郎" }]);
+            db.table("employees").delete(["e1"]);
+          }
+          void configureSync;
 
           console.log(
             typeof SheetDB,

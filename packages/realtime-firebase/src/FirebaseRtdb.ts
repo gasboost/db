@@ -1,3 +1,10 @@
+import type { TableRecord, TableChange } from "@gasboost/table";
+import type { VersionStore } from "./VersionStore";
+import type { RtdbTransport } from "./FirebaseRtdbRestTransport";
+import type {
+  FirebaseRtdbRelationResolver,
+  FirebaseRtdbRecordResolutionContext,
+} from "./FirebaseRtdbTypes";
 import type { RowLevelSecurity } from "@gasboost/rls";
 import { FirebaseRtdbLayout } from "./FirebaseRtdbLayout";
 import { FirebaseRtdbPrincipalValidator } from "./FirebaseRtdbPrincipalValidator";
@@ -12,21 +19,16 @@ import type {
   FirebaseRtdbTableName,
 } from "./FirebaseRtdbTypes";
 
-export type FirebaseRtdbInstance<
-  T extends readonly FirebaseRtdbTableDefinition[],
-  P extends FirebaseRtdbPrincipalMapping,
-> = FirebaseRtdb<T, P> & {
-  readonly [N in FirebaseRtdbTableName<T>]: FirebaseRtdbTable<
-    FirebaseRtdbTableByName<T, N>,
-    P
-  >;
-};
-
 export class FirebaseRtdb<
-  T extends readonly FirebaseRtdbTableDefinition[],
-  P extends FirebaseRtdbPrincipalMapping,
+  const T extends readonly FirebaseRtdbTableDefinition[],
+  const P extends FirebaseRtdbPrincipalMapping,
+  const R extends readonly RowLevelSecurity<T[number], string>[] =
+    readonly RowLevelSecurity<T[number], string>[],
 > {
   private readonly tableDefinitions: T;
+  private readonly versionStore?: VersionStore;
+  private readonly transport?: RtdbTransport;
+  private readonly resolve?: FirebaseRtdbRelationResolver;
 
   private readonly securityPolicies: readonly RowLevelSecurity<T[number]>[];
 
@@ -44,10 +46,17 @@ export class FirebaseRtdb<
 
   public constructor({
     tables,
-    rowLevelSecurity = [],
+    rowLevelSecurity: configuredPolicies,
     principal,
-  }: FirebaseRtdbConfig<T, P>) {
+    versionStore,
+    transport,
+    resolve,
+  }: FirebaseRtdbConfig<T, P, R>) {
+    const rowLevelSecurity = configuredPolicies ?? [];
     this.tableDefinitions = tables;
+    this.versionStore = versionStore;
+    this.transport = transport;
+    this.resolve = resolve;
     this.securityPolicies = rowLevelSecurity;
     this.principalDefinition = principal;
 
@@ -95,30 +104,99 @@ export class FirebaseRtdb<
     this.ensureSingleHopRelationTargets();
   }
 
-  public static generate<
-    const T extends readonly FirebaseRtdbTableDefinition[],
-    const P extends FirebaseRtdbPrincipalMapping,
-    const R extends readonly RowLevelSecurity<T[number], string>[] =
-      readonly [],
-  >(config: FirebaseRtdbConfig<T, P, R>): FirebaseRtdbInstance<T, P> {
-    const rtdb = new FirebaseRtdb<T, P>(config);
+  /** Publish once per logical commit. Retry the same changes or perform a full resync on error. */
+  public publish(changes: readonly TableChange<T[number]>[]): void {
+    if (changes.length === 0) return;
+    if (!this.versionStore || !this.transport)
+      throw new Error("publish() requires versionStore and transport.");
 
-    for (const table of config.tables) {
-      if (table.name in rtdb) {
-        throw new Error(
-          `Table name '${table.name}' conflicts with a FirebaseRtdb property.`,
+    const context = (
+      side: "before" | "after",
+    ): FirebaseRtdbRecordResolutionContext => ({
+      resolve: (request) => {
+        const changed = changes.find(
+          (change) =>
+            change.table === request.table.name &&
+            (change[side] as Record<string, unknown> | null)?.[
+              request.primaryKey
+            ] === request.value,
         );
+        if (changed) return changed[side];
+        return this.resolve?.(request);
+      },
+    });
+    // Resolve all paths before allocating versions; validation must not consume versions.
+    const resolved = changes.map((change) => {
+      const table = this.tableRegistry.get(change.table);
+      if (!table)
+        throw new Error(`RTDB table '${change.table}' was not found.`);
+      const before = change.before as Record<string, unknown> | null;
+      const after = change.after as Record<string, unknown> | null;
+      if (before === null && after === null)
+        throw new Error("A change must contain before or after.");
+      for (const record of [before, after]) {
+        if (record && ("__syncVersion" in record || "__deleted" in record))
+          throw new Error(
+            "__syncVersion and __deleted are reserved RTDB fields.",
+          );
       }
-
-      Object.defineProperty(rtdb, table.name, {
-        enumerable: true,
-        configurable: false,
-        writable: false,
-        value: rtdb.table(table.name),
-      });
+      return {
+        change,
+        table,
+        beforePath:
+          before === null
+            ? null
+            : table.record(
+                change.before! as TableRecord<T[number]>,
+                context("before"),
+              ),
+        afterPath:
+          after === null
+            ? null
+            : table.record(
+                change.after! as TableRecord<T[number]>,
+                context("after"),
+              ),
+      };
+    });
+    const versions = new Map<string, number>();
+    for (const { change } of resolved) {
+      if (!versions.has(change.table)) {
+        const version = this.versionStore.next(change.table);
+        if (!Number.isSafeInteger(version) || version <= 0)
+          throw new Error(`Invalid RTDB version for '${change.table}'.`);
+        versions.set(change.table, version);
+      }
     }
-
-    return rtdb as FirebaseRtdbInstance<T, P>;
+    const updates: Record<string, unknown> = {};
+    // Old paths first: a new live record at the same path must win over a tombstone.
+    for (const { change, table, beforePath, afterPath } of resolved) {
+      const version = versions.get(change.table)!;
+      if (beforePath !== null && beforePath !== afterPath) {
+        updates[beforePath.slice(1)] = {
+          [table.layout().primaryKey()]:
+            change.before![table.layout().primaryKey()],
+          __deleted: true,
+          __syncVersion: version,
+        };
+        updates[
+          `__gasboost/tableVersions${beforePath.slice(0, beforePath.lastIndexOf("/"))}`
+        ] = version;
+      }
+    }
+    for (const { change, afterPath } of resolved) {
+      if (afterPath !== null) {
+        const version = versions.get(change.table)!;
+        updates[afterPath.slice(1)] = {
+          ...change.after,
+          __syncVersion: version,
+        };
+        updates[
+          `__gasboost/tableVersions${afterPath.slice(0, afterPath.lastIndexOf("/"))}`
+        ] = version;
+      }
+    }
+    this.transport.patch(updates);
   }
 
   public tables(): T {
@@ -168,6 +246,10 @@ export class FirebaseRtdb<
     const names = new Set<string>();
 
     for (const table of this.tableDefinitions) {
+      if (table.name === "__gasboost")
+        throw new Error(
+          "Table name '__gasboost' is reserved for RTDB metadata.",
+        );
       if (names.has(table.name)) {
         throw new Error(`Table '${table.name}' is defined more than once.`);
       }

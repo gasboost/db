@@ -1,3 +1,4 @@
+import type { TableChange, KeyedTableDefinition } from "@gasboost/table";
 import { SheetRecords } from "../core/SheetRecords";
 import { SheetTable } from "../core/SheetTable";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
@@ -22,6 +23,35 @@ export interface WriteAuthorization {
 
 export abstract class WriteCommand {
   protected Cache: GoogleAppsScript.Cache.Cache;
+  private changes: {
+    definition: SheetTable<any, any>;
+    change: TableChange<KeyedTableDefinition>;
+  }[] = [];
+
+  protected changed(
+    table: SheetTable<any, any>,
+    before: Record<string, any> | null,
+    after: Record<string, any> | null,
+  ): void {
+    // The collector copies these immediately after successful command execution.
+    this.changes.push({
+      definition: table,
+      change: {
+        table: table.name,
+        before,
+        after,
+      } as TableChange<KeyedTableDefinition>,
+    });
+  }
+
+  public takeChanges(): {
+    definition: SheetTable<any, any>;
+    change: TableChange<KeyedTableDefinition>;
+  }[] {
+    const changes = this.changes;
+    this.changes = [];
+    return changes;
+  }
 
   constructor(
     protected gateway: AccessableDataStore,

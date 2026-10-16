@@ -48,6 +48,10 @@ export type FirebaseRtdbConfig<
   R extends readonly RowLevelSecurity<T[number], string>[] =
     readonly RowLevelSecurity<T[number], string>[],
 > = {
+  readonly versionStore?: import("./VersionStore").VersionStore;
+  readonly transport?: import("./FirebaseRtdbRestTransport").RtdbTransport;
+  /** Resolve unchanged related records when publishing relation-partitioned tables. */
+  readonly resolve?: FirebaseRtdbRelationResolver;
   readonly tables: T & FirebaseRtdbValidatedTables<T>;
   readonly rowLevelSecurity?: R;
   readonly principal: P & FirebaseRtdbRequiredPrincipalMapping<R>;

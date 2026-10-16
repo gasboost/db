@@ -25,7 +25,7 @@ const security = new RowLevelSecurity({
   },
 });
 
-const rtdb = FirebaseRtdb.generate({
+const rtdb = new FirebaseRtdb({
   tables: [users] as const,
   rowLevelSecurity: [security],
   principal: {
@@ -33,12 +33,12 @@ const rtdb = FirebaseRtdb.generate({
   },
 });
 
-rtdb.users.record({
+rtdb.table("users").record({
   id: "user-1",
   name: "Tiger",
 });
 
-rtdb.users.scope({
+rtdb.table("users").scope({
   userId: "user-1",
 });
 
@@ -46,17 +46,17 @@ rtdb.users.scope({
 rtdb.orders;
 
 // @ts-expect-error missing record field
-rtdb.users.record({
+rtdb.table("users").record({
   id: "user-1",
 });
 
-rtdb.users.scope({
+rtdb.table("users").scope({
   userId: "user-1",
   // @ts-expect-error unknown principal field
   storeId: "store-1",
 });
 
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   tables: [users] as const,
   rowLevelSecurity: [security],
   // @ts-expect-error userId is required because RLS references principal.userId
@@ -65,7 +65,7 @@ FirebaseRtdb.generate({
   },
 });
 
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   tables: [users] as const,
   rowLevelSecurity: [security],
   principal: {
@@ -84,7 +84,7 @@ const multiplePrincipalSecurity = new RowLevelSecurity({
   },
 });
 
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   tables: [users] as const,
   rowLevelSecurity: [multiplePrincipalSecurity],
   principal: {
@@ -93,7 +93,7 @@ FirebaseRtdb.generate({
   },
 });
 
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   tables: [users] as const,
   rowLevelSecurity: [multiplePrincipalSecurity],
   // @ts-expect-error storeId is also required by RLS
@@ -108,7 +108,7 @@ const invalidPrimaryKeyUsers = {
   primaryKey: "missing",
 } as const;
 
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   // @ts-expect-error primaryKey must be a key of the table schema
   tables: [invalidPrimaryKeyUsers] as const,
   principal: {

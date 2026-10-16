@@ -30,7 +30,7 @@ const deals = {
 
 describe("FirebaseRtdb rules", () => {
   it("RLSなしtableはunrestrictedになる", () => {
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       principal: {
         userId: "auth.uid",
@@ -40,9 +40,13 @@ describe("FirebaseRtdb rules", () => {
 
     expect(rtdb.rules()).toEqual({
       rules: {
+        __gasboost: {
+          tableVersions: { ".write": false, deals: { ".read": true } },
+        },
         deals: {
           ".read": true,
           ".write": true,
+          ".indexOn": "__syncVersion",
         },
       },
     });
@@ -71,7 +75,7 @@ describe("FirebaseRtdb rules", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -121,7 +125,7 @@ describe("FirebaseRtdb rules", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -160,7 +164,7 @@ describe("FirebaseRtdb rules", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -187,7 +191,7 @@ describe("FirebaseRtdb rules", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {

@@ -18,6 +18,8 @@ export class FirebaseRtdbRulesCompiler {
     >,
   ): FirebaseRtdbRulesJson {
     const root = new FirebaseRtdbRulesNode();
+    const metadata = root.child("__gasboost").child("tableVersions");
+    metadata.set(".write", false);
     const resolveLayout = (tableName: string) => rtdb.layout(tableName);
 
     for (const table of rtdb.tables()) {
@@ -30,6 +32,8 @@ export class FirebaseRtdbRulesCompiler {
 
         tableNode.set(".read", true);
         tableNode.set(".write", true);
+        tableNode.set(".indexOn", "__syncVersion");
+        metadata.child(layout.tableName()).set(".read", true);
 
         continue;
       }
@@ -40,9 +44,16 @@ export class FirebaseRtdbRulesCompiler {
       });
 
       const scopeNode = location.node();
+      scopeNode.set(".indexOn", "__syncVersion");
+      const metadataLocation = FirebaseRtdbRulesLocation.generate({
+        root: metadata,
+        layout,
+      });
+      const metadataNode = metadataLocation.node();
 
       if (policy.select === null) {
         scopeNode.set(".read", false);
+        metadataNode.set(".read", false);
       } else {
         const scopeCompiler = new FirebaseRtdbPredicateCompiler({
           type: "scope",
@@ -52,12 +63,13 @@ export class FirebaseRtdbRulesCompiler {
           resolveLayout,
         });
 
-        scopeNode.set(
-          ".read",
-          scopeCompiler.compileAuthorized(policy.select.using),
-        );
+        const readable = scopeCompiler.compileAuthorized(policy.select.using);
+        scopeNode.set(".read", readable);
+        metadataNode.set(".read", readable);
       }
 
+      // RTDB grants cascade: the authorized scope read also covers minimal
+      // tombstones, even when their original RLS fields/relations no longer exist.
       const recordNode = scopeNode.child("$recordId");
 
       if (policy.select === null) {

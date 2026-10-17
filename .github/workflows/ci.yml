@@ -233,7 +233,14 @@ jobs:
               transport: new FirebaseRtdbRestTransport({
                 databaseUrl: "https://YOUR_DATABASE_URL",
                 urlFetchApp: UrlFetchApp,
-                getAccessToken: () => ScriptApp.getOAuthToken(),
+                cacheService: CacheService,
+                credentialsProvider: () => {
+                  const properties = PropertiesService.getScriptProperties();
+                  return {
+                    email: properties.getProperty("FIREBASE_SERVICE_ACCOUNT_EMAIL")!,
+                    privateKey: properties.getProperty("FIREBASE_PRIVATE_KEY")!,
+                  };
+                },
               }),
             });
             const db = new SheetDB({

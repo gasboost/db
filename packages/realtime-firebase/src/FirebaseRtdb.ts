@@ -3,6 +3,8 @@ import type { VersionStore } from "./VersionStore";
 import type { RtdbTransport } from "./FirebaseRtdbRestTransport";
 import type {
   FirebaseRtdbRelationResolver,
+  FirebaseRtdbRecordQuery,
+  FirebaseRtdbRecordQueryRequest,
   FirebaseRtdbRecordResolutionContext,
 } from "./FirebaseRtdbTypes";
 import type { RowLevelSecurity } from "@gasboost/rls";
@@ -29,6 +31,7 @@ export class FirebaseRtdb<
   private readonly versionStore?: VersionStore;
   private readonly transport?: RtdbTransport;
   private readonly resolve?: FirebaseRtdbRelationResolver;
+  private readonly query?: FirebaseRtdbRecordQuery;
 
   private readonly securityPolicies: readonly RowLevelSecurity<T[number]>[];
 
@@ -51,12 +54,14 @@ export class FirebaseRtdb<
     versionStore,
     transport,
     resolve,
+    query,
   }: FirebaseRtdbConfig<T, P, R>) {
     const rowLevelSecurity = configuredPolicies ?? [];
     this.tableDefinitions = tables;
     this.versionStore = versionStore;
     this.transport = transport;
     this.resolve = resolve;
+    this.query = query;
     this.securityPolicies = rowLevelSecurity;
     this.principalDefinition = principal;
 
@@ -110,23 +115,68 @@ export class FirebaseRtdb<
     if (!this.versionStore || !this.transport)
       throw new Error("publish() requires versionStore and transport.");
 
+    const queryCache = new Map<
+      string,
+      readonly Readonly<Record<string, unknown>>[]
+    >();
+    const query = (request: FirebaseRtdbRecordQueryRequest) => {
+      const key = JSON.stringify([
+        request.table.name,
+        request.column,
+        request.value,
+      ]);
+      let records = queryCache.get(key);
+      if (records === undefined) {
+        if (!this.query)
+          throw new Error(
+            "Publishing relation partition changes requires a synchronous query resolver.",
+          );
+        records = this.query(request);
+        if (
+          !Array.isArray(records) ||
+          records.some(
+            (record) =>
+              record === null ||
+              typeof record !== "object" ||
+              record[request.column] !== request.value,
+          )
+        ) {
+          throw new Error(
+            "RTDB query must synchronously return all committed records matching the requested equality.",
+          );
+        }
+        queryCache.set(key, records);
+      }
+      return records;
+    };
+    const publishChanges = this.includeDependents(changes, query);
     const context = (
       side: "before" | "after",
     ): FirebaseRtdbRecordResolutionContext => ({
       resolve: (request) => {
-        const changed = changes.find(
+        const changed = publishChanges.find(
           (change) =>
             change.table === request.table.name &&
-            (change[side] as Record<string, unknown> | null)?.[
-              request.primaryKey
-            ] === request.value,
+            [change.before, change.after].some(
+              (record) => record?.[request.primaryKey] === request.value,
+            ),
         );
-        if (changed) return changed[side];
-        return this.resolve?.(request);
+        if (changed) {
+          const record = changed[side];
+          return record?.[request.primaryKey] === request.value ? record : null;
+        }
+        if (this.resolve) return this.resolve(request);
+        return this.query
+          ? query({
+              table: request.table,
+              column: request.primaryKey,
+              value: request.value,
+            })[0]
+          : undefined;
       },
     });
     // Resolve all paths before allocating versions; validation must not consume versions.
-    const resolved = changes.map((change) => {
+    const resolved = publishChanges.map((change) => {
       const table = this.tableRegistry.get(change.table);
       if (!table)
         throw new Error(`RTDB table '${change.table}' was not found.`);
@@ -197,6 +247,89 @@ export class FirebaseRtdb<
       }
     }
     this.transport.patch(updates);
+  }
+
+  /** Expand physical moves from RLS bindings without changing the storage-neutral events. */
+  private includeDependents(
+    changes: readonly TableChange<T[number]>[],
+    query: FirebaseRtdbRecordQuery,
+  ): readonly TableChange<T[number]>[] {
+    const expanded = [...changes];
+    const identity = (
+      table: FirebaseRtdbTableDefinition,
+      record: Readonly<Record<string, unknown>>,
+    ) => JSON.stringify([table.name, record[table.primaryKey]]);
+    const explicit = new Set<string>();
+    for (const change of changes) {
+      const table = this.layout(change.table).table();
+      for (const record of [change.before, change.after])
+        if (record) explicit.add(identity(table, record));
+    }
+    const dependents = new Map<
+      string,
+      {
+        table: T[number];
+        record: Readonly<Record<string, unknown>>;
+        deleted: boolean;
+      }
+    >();
+    // Relation targets are single-hop by construction: expanded children cannot
+    // themselves be partition sources, so one pass covers every dependency.
+    for (const layout of this.layoutRegistry.values()) {
+      for (const binding of layout.bindings()) {
+        const relation = binding.relation();
+        if (!relation) continue;
+        for (const change of changes) {
+          if (change.table !== relation.toTable || change.before === null)
+            continue;
+          if (
+            change.after !== null &&
+            change.before[relation.targetColumn] ===
+              change.after[relation.targetColumn] &&
+            change.before[relation.targetKey] ===
+              change.after[relation.targetKey]
+          )
+            continue;
+          const keys = new Set([
+            change.before[relation.targetKey],
+            change.after?.[relation.targetKey],
+          ]);
+          for (const value of keys) {
+            if (value === undefined || value === null) continue;
+            if (
+              typeof value !== "string" &&
+              typeof value !== "number" &&
+              typeof value !== "boolean"
+            )
+              throw new Error("Relation keys must be RTDB path values.");
+            const records = query({
+              table: layout.table(),
+              column: relation.foreignKey,
+              value,
+            });
+            for (const record of records) {
+              const key = identity(layout.table(), record);
+              // Preserve the child's actual before/after for explicit changes.
+              if (explicit.has(key)) continue;
+              const previous = dependents.get(key);
+              dependents.set(key, {
+                table: layout.table(),
+                record,
+                deleted: previous?.deleted === true || change.after === null,
+              });
+            }
+          }
+        }
+      }
+    }
+    for (const { table, record, deleted } of dependents.values()) {
+      expanded.push({
+        table: table.name,
+        before: record,
+        after: deleted ? null : record,
+      } as TableChange<T[number]>);
+    }
+    return expanded;
   }
 
   public tables(): T {

@@ -1222,6 +1222,47 @@ SheetORM の `afterCommit` 経由ではシート更新から publish 完了ま�
 ### 関連レコードで partition を決める場合
 
 `publish` は同じ変更配列内の関連レコードを `before / after` ごとに解決します。
-変更配列にない関連レコードは config の同期 `resolve(request)` で取得できます（`record(record, { resolve })` と同じ契約）。
-必要な関連データが解決できなければ PATCH 前に例外にします。
-関連テーブル側の変更で未変更の子レコードの partition まで移動する場合は、影響する子の `before / after` も呼び出し元で渡してください。
+親の partition 元カラムが変わった場合は、config の同期 `query(request)` で依存する子を列挙し、
+未変更の子も自動的に旧 scope の tombstone と新 scope の live record に移動します。
+呼び出し元による変更配列の補完は不要で、`afterCommit: changes => rtdb.publish(changes)` のまま利用できます。
+親削除時に残った依存レコードは旧 scope を tombstone 化します。
+同じコミットに実際の子の Create / Update / Delete / 再所属が含まれる場合は、その完全な `before / after` を優先して重複を防ぎます。
+子テーブルの version も 1 回だけ採番し、親・子と両 scope のメタデータを同じ PATCH に含めます。
+
+`query` の契約は `{ table, column, value }` に対し、`record[column] === value` の**コミット済み正本レコードを全件**、
+完全な形で同期的に返すことです。RLS による絞り込みやページングで依存レコードを欠落させないでください。
+`query` は変更配列にない関連レコードの単件解決にも使用するため、通常はこのアダプターだけで接続できます。
+既存の `resolve(request)` を設定した場合は単件解決でそちらを優先します。
+同じ equality query は 1 回の publish 内でキャッシュします。
+親の partition 変更時に `query` が未設定、非同期、失敗した場合は採番・PATCH 前に例外とし、不完全な公開を防ぎます。
+partition に関係のない親カラムの変更では依存レコードを query しません。
+
+SheetORM の例では、参照を `SheetTable.reference()` にも登録しておくと、親の通常 CRUD でも子の既存ロックが
+Hook 完了まで保持されます。Transaction では登録テーブル全体をロックします。
+直接 publish する場合も、query 対象の親・子を同じロック境界に含めてください。
+
+```ts
+// employees / tasks は SheetTable。RLS の relation と同じ参照を登録する。
+tasks.reference("employeeId", employees, "id", "cascade");
+const tables = [employees, tasks] as const;
+let db: SheetDB<typeof tables>;
+const rtdb = new FirebaseRtdb({
+  tables,
+  rowLevelSecurity: [taskSecurity],
+  principal: { userId: "auth.uid" },
+  versionStore,
+  transport,
+  query: ({ table, column, value }) =>
+    db.loadRaw(table.name).filter(record => record[column] === value),
+});
+db = new SheetDB({
+  tables,
+  gateway,
+  cacheService: CacheService,
+  utilities: Utilities,
+  afterCommit: changes => rtdb.publish(changes),
+});
+// 以降は親の通常 CRUD だけで未変更の子の partition 移動も自動公開される。
+```
+
+既存の single-hop relation 制約は維持します。採番後の PATCH 失敗時は上記と同じ再送・全同期の方針に従ってください。

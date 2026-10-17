@@ -268,6 +268,7 @@ describe("FirebaseRtdb.publish", () => {
       rowLevelSecurity: [security],
       transport,
       versionStore: versions(),
+      query: () => [],
     });
     rtdb.publish([
       { table: "employees", before, after: { ...after, ownerId: "bob" } },

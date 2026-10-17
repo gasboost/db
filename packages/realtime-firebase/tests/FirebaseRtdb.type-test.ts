@@ -115,3 +115,20 @@ new FirebaseRtdb({
     userId: "auth.uid",
   },
 });
+
+new FirebaseRtdb({
+  tables: [users],
+  principal: {},
+  query: (request) => {
+    const column: string = request.column;
+    void column;
+    return [];
+  },
+});
+
+new FirebaseRtdb({
+  tables: [users],
+  principal: {},
+  // @ts-expect-error dependent queries must be synchronous
+  query: async () => [],
+});

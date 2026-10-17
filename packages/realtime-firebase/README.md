@@ -1163,7 +1163,14 @@ const rtdb = new FirebaseRtdb({
   transport: new FirebaseRtdbRestTransport({
     databaseUrl: "https://YOUR_DATABASE_URL",
     urlFetchApp: UrlFetchApp,
-    getAccessToken: () => ScriptApp.getOAuthToken(),
+    cacheService: CacheService,
+    credentialsProvider: () => {
+      const properties = PropertiesService.getScriptProperties();
+      return {
+        email: properties.getProperty("FIREBASE_SERVICE_ACCOUNT_EMAIL")!,
+        privateKey: properties.getProperty("FIREBASE_PRIVATE_KEY")!,
+      };
+    },
   }),
 });
 const db = new SheetDB({
@@ -1179,7 +1186,26 @@ db.table("employees").update([{ id: "e1", name: "田中太郎" }]);
 db.table("employees").delete(["e1"]);
 ```
 
-OAuth トークンには対象 Firebase へのアクセス権限・OAuth scope / IAM 設定が必要です。
+`FirebaseRtdbRestTransport` は `credentialsProvider` が返す既存の `FirebaseServiceAccount` 型
+（`email` / PEM 形式の `privateKey`）から RS256 JWT assertion を署名し、Google OAuth token endpoint で
+Access Token を内部取得します。Consumer に `getAccessToken` の実装は不要です。
+旧 `getAccessToken` 設定は `credentialsProvider` / `cacheService` に置き換えてください。
+
+`CacheService.getScriptCache()` に有効な token があれば、constructor 初期化時も PATCH 時も
+credential storage を読みません。cache miss / expiration 時だけ provider を呼びます。
+キャッシュは database URL ごとにパッケージ専用 prefix で分離し、同じ script / database URL の
+transport は同じ Service Account を使う前提です。TTL は OAuth response の `expires_in` から
+通信時間と 60 秒の余裕を差し引き、CacheService の上限（6 時間）以内にします。
+TTL が正にならない短命 token はそのリクエストのみで使い、キャッシュしません。
+credential の保存・取得先（PropertiesService / Secret Manager 等）は Consumer が管理します。
+
+署名には GAS 標準の `Utilities` を使います。GAS 外でのテストでは `utilities` も注入できます。
+HTTP / cache は構造的な部分型なので、`urlFetchApp` / `cacheService` に fake を渡せます。
+認証用 scope は `https://www.googleapis.com/auth/firebase.database` と
+`https://www.googleapis.com/auth/userinfo.email` です。
+Service Account には対象 Firebase へのアクセス権限・IAM 設定が必要です。
+OAuth flow の詳細は [Google の仕様](https://developers.google.com/identity/protocols/oauth2/service-account) と
+[Firebase REST 認証](https://firebase.google.com/docs/database/rest/auth) を参照してください。
 `FirebaseRtdbRestTransport` は注入した `UrlFetchApp.fetch` を使い、HTTP エラー・通信例外を伝播させます。
 任意の同期 `RtdbTransport`（`patch(updates): void`）や `VersionStore`（`next(tableName): number`）も注入できます。
 パス・Rules 生成だけならどちらの設定も不要です。

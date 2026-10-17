@@ -315,13 +315,16 @@ describe("REST transport", () => {
       getResponseCode: () => 200,
       getContentText: () => "{}",
     }));
-    const getAccessToken = vi.fn(() => "token");
+    const credentialsProvider = vi.fn();
     const transport = new FirebaseRtdbRestTransport({
       databaseUrl: "https://example.firebaseio.com/",
       urlFetchApp: {
         fetch,
       } as unknown as GoogleAppsScript.URL_Fetch.UrlFetchApp,
-      getAccessToken,
+      credentialsProvider,
+      cacheService: {
+        getScriptCache: () => ({ get: () => "token", put: vi.fn() }),
+      },
     });
     transport.patch({
       "employees/e1": after,
@@ -340,7 +343,7 @@ describe("REST transport", () => {
         muteHttpExceptions: true,
       },
     );
-    expect(getAccessToken).toHaveBeenCalledTimes(1);
+    expect(credentialsProvider).not.toHaveBeenCalled();
   });
   it("propagates HTTP and fetch failures", () => {
     const fetch = vi.fn(() => ({
@@ -352,7 +355,10 @@ describe("REST transport", () => {
       urlFetchApp: {
         fetch,
       } as unknown as GoogleAppsScript.URL_Fetch.UrlFetchApp,
-      getAccessToken: () => "token",
+      credentialsProvider: vi.fn(),
+      cacheService: {
+        getScriptCache: () => ({ get: () => "token", put: vi.fn() }),
+      },
     });
     expect(() => transport.patch({})).toThrow("HTTP 403");
     fetch.mockImplementationOnce(() => {

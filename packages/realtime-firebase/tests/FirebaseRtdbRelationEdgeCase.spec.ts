@@ -66,7 +66,7 @@ function relationOwner() {
 }
 
 function generate() {
-  return FirebaseRtdb.generate({
+  return new FirebaseRtdb({
     tables: [requests, destinations] as const,
     rowLevelSecurity: [
       requestSecurity(),
@@ -104,14 +104,15 @@ describe("FirebaseRtdb relation-aware RLS edge cases", () => {
       },
     });
 
-    expect(() =>
-      FirebaseRtdb.generate({
-        tables: [requests, destinations] as const,
-        rowLevelSecurity: [requestSecurity(), security],
-        principal: {
-          employeeId: "auth.token.employeeId",
-        },
-      }),
+    expect(
+      () =>
+        new FirebaseRtdb({
+          tables: [requests, destinations] as const,
+          rowLevelSecurity: [requestSecurity(), security],
+          principal: {
+            employeeId: "auth.token.employeeId",
+          },
+        }),
     ).toThrow(
       "RTDB relation projection requires the referenced key to be primary key 'id'",
     );
@@ -121,7 +122,7 @@ describe("FirebaseRtdb relation-aware RLS edge cases", () => {
     const rtdb = generate();
 
     expect(() =>
-      rtdb.destinations.record(
+      rtdb.table("destinations").record(
         {
           id: "destination-1",
           requestId: "request-1",
@@ -150,7 +151,7 @@ describe("FirebaseRtdb relation-aware RLS edge cases", () => {
     })) as unknown as FirebaseRtdbRelationResolver;
 
     expect(() =>
-      rtdb.destinations.record(
+      rtdb.table("destinations").record(
         {
           id: "destination-1",
           requestId: "request-1",
@@ -179,14 +180,14 @@ describe("FirebaseRtdb relation-aware RLS edge cases", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [requests, destinations] as const,
       rowLevelSecurity: [security],
       principal: {},
     });
 
     expect(
-      rtdb.destinations.record(
+      rtdb.table("destinations").record(
         {
           id: "destination-1",
           requestId: "request-1",
@@ -208,7 +209,7 @@ describe("FirebaseRtdb relation-aware RLS edge cases", () => {
       ),
     ).toBe("/destinations/__rls/status/draft/destination-1");
 
-    expect(rtdb.destinations.scope({})).toBe(
+    expect(rtdb.table("destinations").scope({})).toBe(
       "/destinations/__rls/status/draft",
     );
 
@@ -249,14 +250,15 @@ describe("FirebaseRtdb relation-aware RLS edge cases", () => {
       },
     });
 
-    expect(() =>
-      FirebaseRtdb.generate({
-        tables: [requests, destinations] as const,
-        rowLevelSecurity: [requestSecurity(), security],
-        principal: {
-          employeeId: "auth.token.employeeId",
-        },
-      }),
+    expect(
+      () =>
+        new FirebaseRtdb({
+          tables: [requests, destinations] as const,
+          rowLevelSecurity: [requestSecurity(), security],
+          principal: {
+            employeeId: "auth.token.employeeId",
+          },
+        }),
     ).toThrow("but the current RTDB table is 'destinations'");
   });
 
@@ -276,7 +278,7 @@ describe("FirebaseRtdb relation-aware RLS edge cases", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [requests, destinations] as const,
       rowLevelSecurity: [requestSecurity(), security],
       principal: {
@@ -362,14 +364,15 @@ describe("FirebaseRtdb relation-aware RLS edge cases", () => {
       },
     });
 
-    expect(() =>
-      FirebaseRtdb.generate({
-        tables: [organizations, tripRequests, tripDestinations] as const,
-        rowLevelSecurity: [tripRequestSecurity, tripDestinationSecurity],
-        principal: {
-          employeeId: "auth.token.employeeId",
-        },
-      }),
+    expect(
+      () =>
+        new FirebaseRtdb({
+          tables: [organizations, tripRequests, tripDestinations] as const,
+          rowLevelSecurity: [tripRequestSecurity, tripDestinationSecurity],
+          principal: {
+            employeeId: "auth.token.employeeId",
+          },
+        }),
     ).toThrow(
       "would require multi-hop relation projection, which is not currently supported.",
     );

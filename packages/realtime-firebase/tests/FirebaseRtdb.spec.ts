@@ -42,7 +42,7 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -51,7 +51,8 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    expect(rtdb.deals).toBe(rtdb.table("deals"));
+    expect(rtdb.table("deals")).toBe(rtdb.table("deals"));
+    expect(rtdb).not.toHaveProperty("deals");
   });
 
   it("record pathをRLSから生成する", () => {
@@ -65,7 +66,7 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -75,7 +76,7 @@ describe("FirebaseRtdb", () => {
     });
 
     expect(
-      rtdb.deals.record({
+      rtdb.table("deals").record({
         id: "deal-1",
         ownerId: "user-1",
         storeId: "store-1",
@@ -96,7 +97,7 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -106,7 +107,7 @@ describe("FirebaseRtdb", () => {
     });
 
     expect(
-      rtdb.deals.scope({
+      rtdb.table("deals").scope({
         userId: "user-1",
         storeId: "store-1",
       }),
@@ -124,7 +125,7 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -134,7 +135,7 @@ describe("FirebaseRtdb", () => {
     });
 
     expect(
-      rtdb.deals.scope({
+      rtdb.table("deals").scope({
         userId: "user-1",
         storeId: "store-1",
       }),
@@ -152,7 +153,7 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -162,7 +163,7 @@ describe("FirebaseRtdb", () => {
     });
 
     expect(
-      rtdb.deals.scope({
+      rtdb.table("deals").scope({
         userId: "user-1",
         storeId: "store-1",
       }),
@@ -177,7 +178,7 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -187,7 +188,7 @@ describe("FirebaseRtdb", () => {
     });
 
     expect(() =>
-      rtdb.deals.record({
+      rtdb.table("deals").record({
         id: "deal-1",
         ownerId: "user-1",
         storeId: "store-1",
@@ -198,7 +199,7 @@ describe("FirebaseRtdb", () => {
   });
 
   it("RLSなしtableはroot scopeを利用する", () => {
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       principal: {
         userId: "auth.uid",
@@ -207,14 +208,14 @@ describe("FirebaseRtdb", () => {
     });
 
     expect(
-      rtdb.deals.scope({
+      rtdb.table("deals").scope({
         userId: "user-1",
         storeId: "store-1",
       }),
     ).toBe("/deals");
 
     expect(
-      rtdb.deals.record({
+      rtdb.table("deals").record({
         id: "deal-1",
         ownerId: "user-1",
         storeId: "store-1",
@@ -232,7 +233,7 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -242,7 +243,7 @@ describe("FirebaseRtdb", () => {
     });
 
     expect(() =>
-      rtdb.deals.scope({
+      rtdb.table("deals").scope({
         userId: "user-1",
         storeId: "store-1",
       }),
@@ -263,15 +264,16 @@ describe("FirebaseRtdb", () => {
       },
     });
 
-    expect(() =>
-      FirebaseRtdb.generate({
-        tables: [deals] as const,
-        rowLevelSecurity: [security],
-        principal: {
-          userId: "auth.uid",
-          storeId: "auth.token.storeId",
-        },
-      }),
+    expect(
+      () =>
+        new FirebaseRtdb({
+          tables: [deals] as const,
+          rowLevelSecurity: [security],
+          principal: {
+            userId: "auth.uid",
+            storeId: "auth.token.storeId",
+          },
+        }),
     ).toThrow(
       "uses or(), which cannot be projected to a single RTDB subscription scope.",
     );
@@ -293,6 +295,7 @@ describe("FirebaseRtdb", () => {
         new FirebaseRtdb({
           tables: [deals] as const,
           rowLevelSecurity: [security],
+          // @ts-expect-error runtime validation also rejects missing principal mappings
           principal: {
             storeId: "auth.token.storeId",
           },

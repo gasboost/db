@@ -66,43 +66,45 @@ export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
 
     this.gateway.table(this.table.name, this.table.dbId);
 
-    this.table.lock(this.Cache, this.Utilities);
+    const release = this.table.holdLock(this.Cache, this.Utilities);
 
-    let lastId: number | null = null;
+    try {
+      let lastId: number | null = null;
 
-    const autoIncrementCacheKey = `${this.table.dbId}:${this.table.name}:autoIncrement`;
+      const autoIncrementCacheKey = `${this.table.dbId}:${this.table.name}:autoIncrement`;
 
-    const cached = this.Cache.get(autoIncrementCacheKey);
+      const cached = this.Cache.get(autoIncrementCacheKey);
 
-    if (!cached) {
-      lastId = this.gateway.lastId(this.table.primaryKey as string);
-    } else {
-      try {
-        lastId = JSON.parse(cached)?.value;
-      } catch {
+      if (!cached) {
         lastId = this.gateway.lastId(this.table.primaryKey as string);
+      } else {
+        try {
+          lastId = JSON.parse(cached)?.value;
+        } catch {
+          lastId = this.gateway.lastId(this.table.primaryKey as string);
+        }
       }
+
+      const start = lastId || 0;
+      const end = start + normalized.length;
+
+      const payload = JSON.stringify({
+        value: end,
+        token: this.Utilities.getUuid(),
+      });
+
+      this.Cache.put(autoIncrementCacheKey, payload, 300);
+
+      normalized.forEach((param, index) => {
+        const record = param as Record<string, any>;
+
+        record[this.table.primaryKey as string] = start + 1 + index;
+
+        this.diff.push(param);
+      });
+    } finally {
+      release();
     }
-
-    const start = lastId || 0;
-    const end = start + normalized.length;
-
-    const payload = JSON.stringify({
-      value: end,
-      token: this.Utilities.getUuid(),
-    });
-
-    this.Cache.put(autoIncrementCacheKey, payload, 300);
-
-    this.table.releaseLock();
-
-    normalized.forEach((param, index) => {
-      const record = param as Record<string, any>;
-
-      record[this.table.primaryKey as string] = start + 1 + index;
-
-      this.diff.push(param);
-    });
   }
 
   execute(
@@ -120,12 +122,16 @@ export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
     for (const batch of batches) {
       this.gateway.table(batch.table.name, batch.table.dbId);
 
-      batch.table.lock(this.Cache, this.Utilities);
+      const release = batch.table.holdLock(this.Cache, this.Utilities);
 
       try {
         this.gateway.insert(batch.records);
+        for (const record of batch.records) {
+          const { relations, ...stored } = record;
+          this.changed(batch.table, null, stored);
+        }
       } finally {
-        batch.table.releaseLock();
+        release();
       }
     }
   }

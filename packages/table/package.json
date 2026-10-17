@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/table",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Storage-agnostic logical table definitions powered by Zod",
   "repository": {
     "type": "git",

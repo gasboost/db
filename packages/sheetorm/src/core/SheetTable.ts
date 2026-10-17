@@ -162,6 +162,21 @@ export class SheetTable<
     this.cacheRef = cache;
   }
 
+  /** Borrow an existing lock; only the acquiring scope may release it. */
+  holdLock(
+    cache: GoogleAppsScript.Cache.Cache,
+    utilities: GoogleAppsScript.Utilities.Utilities,
+  ): () => void {
+    const previousToken = this.lockToken;
+    this.lock(cache, utilities);
+    const token = this.lockToken;
+    return previousToken === token
+      ? () => {}
+      : () => {
+          if (this.lockToken === token) this.releaseLock();
+        };
+  }
+
   releaseLock(): void {
     if (!this.lockHeld) return;
 

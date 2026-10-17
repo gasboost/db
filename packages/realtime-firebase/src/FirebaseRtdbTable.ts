@@ -29,6 +29,11 @@ export class FirebaseRtdbTable<
     return `/${segments.join("/")}`;
   }
 
+  /** Version metadata follows the same RLS scope as the record collection. */
+  public versionPath(principal: FirebaseRtdbPrincipalValues<P>): string {
+    return `/__gasboost/tableVersions${this.scope(principal)}`;
+  }
+
   public scope(principal: FirebaseRtdbPrincipalValues<P>): string {
     if (!this.tableLayout.readable()) {
       throw new Error(

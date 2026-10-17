@@ -91,10 +91,16 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
   public execute(exsist: SheetRecords): z.output<Z>[] {
     this.gateway.table(this.table.name, this.table.dbId);
 
-    this.table.lock(this.Cache, this.Utilities);
+    const release = this.table.holdLock(this.Cache, this.Utilities);
 
     try {
       const currentRecords = exsist.getValues();
+      const beforeByKey = new Map(
+        currentRecords.map((record) => [
+          record[this.table.primaryKey as string],
+          record,
+        ]),
+      );
 
       const updatedRecords = this.preview(exsist);
 
@@ -110,9 +116,16 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
         this.table.primaryKey as string,
       );
 
+      for (const record of updatedRecords) {
+        this.changed(
+          this.table,
+          beforeByKey.get(record[this.table.primaryKey as string]) ?? null,
+          record,
+        );
+      }
       return updatedRecords;
     } finally {
-      this.table.releaseLock();
+      release();
     }
   }
 }

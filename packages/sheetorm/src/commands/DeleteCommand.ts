@@ -51,9 +51,13 @@ export class DeleteCommand extends WriteCommand {
       },
     );
 
-    orderedTables.forEach((table) => table.lock(this.Cache, this.Utilities));
+    const releases: (() => void)[] = [];
 
     try {
+      for (const table of orderedTables)
+        releases.push(
+          (table as SheetTable<any, any>).holdLock(this.Cache, this.Utilities),
+        );
       const loaded = this.gateway.readMany(
         orderedTables.map((table) => ({
           dbId: table.dbId,
@@ -270,6 +274,13 @@ export class DeleteCommand extends WriteCommand {
           }
         }
 
+        for (const before of originalRecords.get(tableKey) ?? []) {
+          const id = before[sheetTable.primaryKey as string];
+          if (deleted.has(id)) this.changed(sheetTable, before, null);
+          else if (changes?.has(id))
+            this.changed(sheetTable, before, changes.get(id)!);
+        }
+
         if (deleted.size > 0) {
           this.gateway.table(table.name, table.dbId);
 
@@ -281,10 +292,7 @@ export class DeleteCommand extends WriteCommand {
         }
       }
     } finally {
-      orderedTables
-        .slice()
-        .reverse()
-        .forEach((table) => table.releaseLock());
+      releases.reverse().forEach((release) => release());
     }
   }
 }

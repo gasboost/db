@@ -48,6 +48,12 @@ export type FirebaseRtdbConfig<
   R extends readonly RowLevelSecurity<T[number], string>[] =
     readonly RowLevelSecurity<T[number], string>[],
 > = {
+  readonly versionStore?: import("./VersionStore").VersionStore;
+  readonly transport?: import("./FirebaseRtdbRestTransport").RtdbTransport;
+  /** Resolve unchanged related records when publishing relation-partitioned tables. */
+  readonly resolve?: FirebaseRtdbRelationResolver;
+  /** Complete committed rows matching an equality query, without RLS filtering. */
+  readonly query?: FirebaseRtdbRecordQuery;
   readonly tables: T & FirebaseRtdbValidatedTables<T>;
   readonly rowLevelSecurity?: R;
   readonly principal: P & FirebaseRtdbRequiredPrincipalMapping<R>;
@@ -114,3 +120,14 @@ export type FirebaseRtdbRelationResolver = (
 export type FirebaseRtdbRecordResolutionContext = {
   readonly resolve: FirebaseRtdbRelationResolver;
 };
+
+/** Query the authoritative committed state while the caller holds table locks. */
+export type FirebaseRtdbRecordQueryRequest = {
+  readonly table: FirebaseRtdbTableDefinition;
+  readonly column: string;
+  readonly value: FirebaseRtdbPathValue;
+};
+
+export type FirebaseRtdbRecordQuery = (
+  request: FirebaseRtdbRecordQueryRequest,
+) => readonly Readonly<Record<string, unknown>>[];

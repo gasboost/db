@@ -83,7 +83,7 @@ const dealSecurity = new RowLevelSecurity({
 この定義から RTDB 定義を生成します。
 
 ```ts
-export const rtdb = FirebaseRtdb.generate({
+export const rtdb = new FirebaseRtdb({
   tables: [deals] as const,
   rowLevelSecurity: [dealSecurity],
 
@@ -104,7 +104,7 @@ RLS で参照している Principal key は `rowLevelSecurity` から型推論�
 Table 名は型として保持されます。
 
 ```ts
-rtdb.deals;
+rtdb.table("deals");
 ```
 
 存在しない Table 名にはアクセスできません。
@@ -118,7 +118,7 @@ const deal = {
   title: "Example",
 };
 
-const path = rtdb.deals.record(deal);
+const path = rtdb.table("deals").record(deal);
 ```
 
 生成される path:
@@ -132,7 +132,7 @@ const path = rtdb.deals.record(deal);
 ```ts
 import { ref, set } from "firebase/database";
 
-await set(ref(database, rtdb.deals.record(deal)), deal);
+await set(ref(database, rtdb.table("deals").record(deal)), deal);
 ```
 
 `@gasboost/realtime-firebase` は Firebase SDK 自体をラップしません。
@@ -142,7 +142,7 @@ await set(ref(database, rtdb.deals.record(deal)), deal);
 RLS から、購読可能な認可済み subtree も生成できます。
 
 ```ts
-const scope = rtdb.deals.scope({
+const scope = rtdb.table("deals").scope({
   userId: "user-1",
 });
 ```
@@ -161,7 +161,7 @@ import { onValue, ref } from "firebase/database";
 onValue(
   ref(
     database,
-    rtdb.deals.scope({
+    rtdb.table("deals").scope({
       userId: "user-1",
     }),
   ),
@@ -229,7 +229,7 @@ and(
 runtime では同じ定義から scope を取得します。
 
 ```ts
-rtdb.deals.scope({
+rtdb.table("deals").scope({
   userId: "user-1",
   storeId: "store-1",
 });
@@ -533,7 +533,7 @@ Gasboost Auth の `User` / `Session` や認証 lifecycle は認識しません�
 RLS の Principal は Firebase Authentication 上の値へ明示的に対応付けます。
 
 ```ts
-const rtdb = FirebaseRtdb.generate({
+const rtdb = new FirebaseRtdb({
   tables,
   rowLevelSecurity,
 
@@ -574,7 +574,7 @@ auth.token.storeId
 
 ### Principal mapping の型推論
 
-`FirebaseRtdb.generate()` は、`rowLevelSecurity` で参照されている Principal key を型レベルで追跡します。
+`new FirebaseRtdb()` は、`rowLevelSecurity` で参照されている Principal key を型レベルで追跡します。
 
 例えば RLS が次の Principal を参照している場合、
 
@@ -590,7 +590,7 @@ const security = new RowLevelSecurity({
 `principal` mapping には `userId` が必須になります。
 
 ```ts
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   tables: [deals] as const,
   rowLevelSecurity: [security],
 
@@ -603,7 +603,7 @@ FirebaseRtdb.generate({
 必要な mapping を省略すると TypeScript error になります。
 
 ```ts
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   tables: [deals] as const,
   rowLevelSecurity: [security],
 
@@ -627,7 +627,7 @@ const security = new RowLevelSecurity({
   },
 });
 
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   tables: [deals] as const,
   rowLevelSecurity: [security],
 
@@ -641,7 +641,7 @@ FirebaseRtdb.generate({
 RLS で必要とされる key 以外の mapping を追加することもできます。
 
 ```ts
-FirebaseRtdb.generate({
+new FirebaseRtdb({
   tables: [deals] as const,
   rowLevelSecurity: [security],
 
@@ -843,7 +843,7 @@ const childSecurity = new RowLevelSecurity({
 この定義から、`@gasboost/realtime-firebase` は single-hop relation を認可用の RTDB layout へ投影します。
 
 ```ts
-const rtdb = FirebaseRtdb.generate({
+const rtdb = new FirebaseRtdb({
   tables: [parents, children] as const,
   rowLevelSecurity: [childSecurity],
 
@@ -866,7 +866,7 @@ const child = {
   value: "example",
 };
 
-const path = rtdb.children.record(child, {
+const path = rtdb.table("children").record(child, {
   resolve: ({ table, primaryKey, value }) => {
     if (
       table.name === "parents" &&
@@ -914,7 +914,7 @@ subscription scope は child Record を必要としません。
 Principal の値だけから生成できます。
 
 ```ts
-const scope = rtdb.children.scope({
+const scope = rtdb.table("children").scope({
   userId: "user-1",
 });
 ```
@@ -1130,3 +1130,139 @@ FirebaseRtdb
 ## License
 
 MIT
+
+## 差分同期の publish（0.5.0〜）
+
+`new FirebaseRtdb(config)` に初期化 API を統一しました。旧 `FirebaseRtdb.generate(config)` と
+`rtdb.employees` 形式の動的プロパティは廃止し、`rtdb.table("employees")` を使用します。
+
+`publish(changes)` は同期メソッドです。テーブルごとに 1 回だけ version を採番し、レコード・削除情報・version
+メタデータを 1 回の root multi-location PATCH で atomic に公開します。採番のための RTDB GET は行いません。
+
+```ts
+import { z } from "zod";
+import { defineTable } from "@gasboost/table";
+import { SheetDB, SheetGateway, SheetTable } from "@gasboost/sheetorm";
+import {
+  FirebaseRtdb,
+  FirebaseRtdbRestTransport,
+  PropertiesVersionStore,
+} from "@gasboost/realtime-firebase";
+
+const employees = defineTable({
+  name: "employees",
+  primaryKey: "id",
+  schema: z.object({ id: z.string(), name: z.string() }),
+});
+const tables = [new SheetTable({ ...employees, dbId: "SPREADSHEET_ID" })] as const;
+const rtdb = new FirebaseRtdb({
+  tables,
+  rowLevelSecurity: [],
+  principal: { userId: "auth.uid" },
+  versionStore: new PropertiesVersionStore(PropertiesService.getScriptProperties()),
+  transport: new FirebaseRtdbRestTransport({
+    databaseUrl: "https://YOUR_DATABASE_URL",
+    urlFetchApp: UrlFetchApp,
+    getAccessToken: () => ScriptApp.getOAuthToken(),
+  }),
+});
+const db = new SheetDB({
+  tables,
+  gateway: new SheetGateway(Sheets!),
+  cacheService: CacheService,
+  utilities: Utilities,
+  afterCommit: changes => rtdb.publish(changes),
+});
+
+db.table("employees").create([{ id: "e1", name: "田中" }]);
+db.table("employees").update([{ id: "e1", name: "田中太郎" }]);
+db.table("employees").delete(["e1"]);
+```
+
+OAuth トークンには対象 Firebase へのアクセス権限・OAuth scope / IAM 設定が必要です。
+`FirebaseRtdbRestTransport` は注入した `UrlFetchApp.fetch` を使い、HTTP エラー・通信例外を伝播させます。
+任意の同期 `RtdbTransport`（`patch(updates): void`）や `VersionStore`（`next(tableName): number`）も注入できます。
+パス・Rules 生成だけならどちらの設定も不要です。
+
+### 同期プロトコル
+
+| データ | 保存先・値 |
+| --- | --- |
+| 通常レコード | `table(name).record(record)` のパスに `{ ...record, __syncVersion: version }` |
+| 削除 | 同じレコード集合に `{ [primaryKey]: id, __deleted: true, __syncVersion: version }` |
+| RLS なしの tableVersion | `/__gasboost/tableVersions/<tableName>` に数値 |
+| RLS 付きの scope version | `/__gasboost/tableVersions` + `table(name).scope(principal)` に数値 |
+
+`table(name).versionPath(principal)` で Frontend が読む version パスを得られます。
+RLS 付きテーブルではテーブル単位に採番した同じ version を、今回変更された各 scope に公開します。
+別 scope のみの変更では自 scope の version は変わりません。自 scope のレコードに差分がないため、取得を省略できます。
+旧 partition → 新 partition の移動では旧パスに tombstone を残し、両 scope の version を更新します。
+メタデータの read 条件はレコード集合の scope と同じで、全 scope の version 一覧の読み取りやクライアントからの変更は許可しません。
+
+`__syncVersion` / `__deleted` は RTDB 専用の予約フィールド、`__gasboost` は予約テーブル名です。
+ドメインの `version` カラムには干渉しません。入力の `TableChange` は変更しません。
+Rules はレコード集合の `.indexOn: "__syncVersion"` を生成します。Frontend は認可された scope を
+`orderByChild("__syncVersion")` と `startAt(localVersion + 1)` で読み、tombstone を含めて適用してください。
+RTDB の read 権限は子孫に継承されるため、tombstone は元レコードの属性や関連レコードがなくても、自 scope の read 条件で安全に取得できます。
+Frontend Replica の取得・適用 API 自体は別途提供予定です。
+
+### Properties・失敗時の扱い
+
+`PropertiesVersionStore` は `rtdb:version:<tableName>` を読み、初期値 0 から +1 して保存します。
+VersionStore はロックを実装しません。同じテーブルを公開する全 writer は同じ Properties と既存のテーブルロックを共有してください。
+SheetORM の `afterCommit` 経由ではシート更新から publish 完了までロックが保持されます。
+直接 `publish()` を呼ぶ場合も、呼び出し元で同じロック境界を確保します。
+
+**採番後の PATCH 失敗では欠番を許容しますが、失敗した差分は自動復旧しません。**
+例外が出たら未送信の `TableChange[]` を保持し、次の更新を進める前に同じ変更を再送するか、シートの正本から全同期してください。
+変更配列を保存せず次のコミットだけ公開すると、未反映のレコードを取り逃す可能性があります。
+再送時は新しい version を採番します。Properties と RTDB をまたぐ分散 Transaction や自動 outbox は提供しません。
+`seed / migrate` による初期同期は Hook 対象外なので、初期レコードを `before: null` の変更配列として別途 publish してください。
+
+### 関連レコードで partition を決める場合
+
+`publish` は同じ変更配列内の関連レコードを `before / after` ごとに解決します。
+親の partition 元カラムが変わった場合は、config の同期 `query(request)` で依存する子を列挙し、
+未変更の子も自動的に旧 scope の tombstone と新 scope の live record に移動します。
+呼び出し元による変更配列の補完は不要で、`afterCommit: changes => rtdb.publish(changes)` のまま利用できます。
+親削除時に残った依存レコードは旧 scope を tombstone 化します。
+同じコミットに実際の子の Create / Update / Delete / 再所属が含まれる場合は、その完全な `before / after` を優先して重複を防ぎます。
+子テーブルの version も 1 回だけ採番し、親・子と両 scope のメタデータを同じ PATCH に含めます。
+
+`query` の契約は `{ table, column, value }` に対し、`record[column] === value` の**コミット済み正本レコードを全件**、
+完全な形で同期的に返すことです。RLS による絞り込みやページングで依存レコードを欠落させないでください。
+`query` は変更配列にない関連レコードの単件解決にも使用するため、通常はこのアダプターだけで接続できます。
+既存の `resolve(request)` を設定した場合は単件解決でそちらを優先します。
+同じ equality query は 1 回の publish 内でキャッシュします。
+親の partition 変更時に `query` が未設定、非同期、失敗した場合は採番・PATCH 前に例外とし、不完全な公開を防ぎます。
+partition に関係のない親カラムの変更では依存レコードを query しません。
+
+SheetORM の例では、参照を `SheetTable.reference()` にも登録しておくと、親の通常 CRUD でも子の既存ロックが
+Hook 完了まで保持されます。Transaction では登録テーブル全体をロックします。
+直接 publish する場合も、query 対象の親・子を同じロック境界に含めてください。
+
+```ts
+// employees / tasks は SheetTable。RLS の relation と同じ参照を登録する。
+tasks.reference("employeeId", employees, "id", "cascade");
+const tables = [employees, tasks] as const;
+let db: SheetDB<typeof tables>;
+const rtdb = new FirebaseRtdb({
+  tables,
+  rowLevelSecurity: [taskSecurity],
+  principal: { userId: "auth.uid" },
+  versionStore,
+  transport,
+  query: ({ table, column, value }) =>
+    db.loadRaw(table.name).filter(record => record[column] === value),
+});
+db = new SheetDB({
+  tables,
+  gateway,
+  cacheService: CacheService,
+  utilities: Utilities,
+  afterCommit: changes => rtdb.publish(changes),
+});
+// 以降は親の通常 CRUD だけで未変更の子の partition 移動も自動公開される。
+```
+
+既存の single-hop relation 制約は維持します。採番後の PATCH 失敗時は上記と同じ再送・全同期の方針に従ってください。

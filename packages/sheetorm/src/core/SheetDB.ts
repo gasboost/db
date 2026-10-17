@@ -1,3 +1,4 @@
+import type { KeyedTableDefinition, TableChange } from "@gasboost/table";
 import {
   Query,
   QueryEvaluation,
@@ -9,7 +10,7 @@ import { ZodObject, z } from "zod";
 import { CreateCommand } from "../commands/CreateCommand";
 import { DeleteCommand } from "../commands/DeleteCommand";
 import { UpdateCommand } from "../commands/UpdateCommand";
-import { WriteAuthorization } from "../commands/WriteCommand";
+import { WriteAuthorization, WriteCommand } from "../commands/WriteCommand";
 import { AccessableDataStore } from "../gateway/AccessableDataStore";
 import { Relationable, TableByName } from "./Relationable";
 import {
@@ -30,16 +31,18 @@ export type CurrentSchema<
 > = CurrentTable<T, N>["schema"];
 
 type CreateRecord<T extends ZodObject<any>> = {
-  [K in keyof z.infer<T> as T["shape"][K] extends {
-    _def: {
-      meta: {
-        primary: true;
-        autoIncrement: true;
+  [
+    K in keyof z.infer<T> as T["shape"][K] extends {
+      _def: {
+        meta: {
+          primary: true;
+          autoIncrement: true;
+        };
       };
-    };
-  }
-    ? never
-    : K]?: z.infer<T>[K];
+    }
+      ? never
+      : K
+  ]?: z.infer<T>[K];
 };
 
 type CreateParams<
@@ -58,7 +61,61 @@ type CreateRelations<T extends readonly Relationable<any>[]> = Partial<{
   [K in T[number]["name"]]: CreateParams<T, TableByName<T, K>["schema"]>[];
 }>;
 
+export type AfterCommitHook<T extends readonly KeyedTableDefinition[]> = (
+  changes: readonly TableChange<T[number]>[],
+) => void;
+
+function snapshot<V>(value: V): V {
+  if (value instanceof Date) return new Date(value.getTime()) as V;
+  if (Array.isArray(value)) return value.map(snapshot) as V;
+  if (value !== null && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, snapshot(item)]),
+    ) as V;
+  return value;
+}
+
+function snapshotsEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left instanceof Date || right instanceof Date) {
+    return (
+      left instanceof Date &&
+      right instanceof Date &&
+      left.getTime() === right.getTime()
+    );
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => snapshotsEqual(value, right[index]))
+    );
+  }
+  if (
+    left === null ||
+    right === null ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  )
+    return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+  return (
+    keys.length === Object.keys(rightRecord).length &&
+    keys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+        snapshotsEqual(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
+
 export type SheetDBConfig<T extends readonly SheetTable<string, any>[]> = {
+  afterCommit?: AfterCommitHook<T>;
   tables: T;
   gateway: AccessableDataStore;
   cacheService: GoogleAppsScript.Cache.CacheService;
@@ -73,6 +130,16 @@ export class SheetDB<
 > {
   private _table: TableByName<T, N>;
   private transactionEnabled = false;
+  private writeDepth = 0;
+  private readonly afterCommit?: AfterCommitHook<T>;
+  private changes = new Map<
+    string,
+    {
+      table: string;
+      before: Record<string, any> | null;
+      after: Record<string, any> | null;
+    }
+  >();
   private cache: GoogleAppsScript.Cache.Cache;
   private readonly tables: T;
   private gateway: AccessableDataStore;
@@ -88,6 +155,7 @@ export class SheetDB<
 
   constructor(config: SheetDBConfig<T>) {
     this.tables = config.tables;
+    this.afterCommit = config.afterCommit;
     this.gateway = config.gateway;
     this.CacheService = config.cacheService;
     this.Utilities = config.utilities;
@@ -157,6 +225,12 @@ export class SheetDB<
   public create(
     params: CreateParams<T, CurrentSchema<T, N>>[],
   ): CurrentRecord<T, N>[] {
+    return this.runWrite([this._table], () => this.executeCreate(params));
+  }
+
+  private executeCreate(
+    params: CreateParams<T, CurrentSchema<T, N>>[],
+  ): CurrentRecord<T, N>[] {
     const command = new CreateCommand(
       this.gateway,
       this._table,
@@ -176,23 +250,24 @@ export class SheetDB<
       return records;
     }
 
-    try {
-      this.gateway.table(this._table.name, this._table.dbId);
+    this.gateway.table(this._table.name, this._table.dbId);
 
-      const exsist = new SheetRecords(
-        this.gateway.read(),
-        this._table.primaryKey as string,
-      );
+    const exsist = new SheetRecords(
+      this.gateway.read(),
+      this._table.primaryKey as string,
+    );
 
-      command.execute(exsist);
-    } finally {
-      this._table.releaseLock();
-    }
+    command.execute(exsist);
+    this.collectChanges(command);
 
     return command.getDiff();
   }
 
   public update(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
+    return this.runWrite([this._table], () => this.executeUpdate(records));
+  }
+
+  private executeUpdate(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
     const command = new UpdateCommand(
       this._table,
       this.gateway,
@@ -226,19 +301,21 @@ export class SheetDB<
       return updatedRecords;
     }
 
-    try {
-      const executionRecords = new SheetRecords(
-        currentRecords,
-        this._table.primaryKey as string,
-      );
+    const executionRecords = new SheetRecords(
+      currentRecords,
+      this._table.primaryKey as string,
+    );
 
-      return command.execute(executionRecords);
-    } finally {
-      this._table.releaseLock();
-    }
+    const executed = command.execute(executionRecords);
+    this.collectChanges(command);
+    return executed;
   }
 
   public upsert(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
+    return this.runWrite([this._table], () => this.executeUpsert(records));
+  }
+
+  private executeUpsert(records: CurrentRecord<T, N>[]): CurrentRecord<T, N>[] {
     this.gateway.table(this._table.name, this._table.dbId);
 
     const currentRecords = this.gateway.read();
@@ -381,47 +458,48 @@ export class SheetDB<
       return resultRecords;
     }
 
-    try {
-      if (updateCommand) {
-        const executionRecords = new SheetRecords(
-          currentRecords,
-          this._table.primaryKey as string,
-        );
+    if (updateCommand) {
+      const executionRecords = new SheetRecords(
+        currentRecords,
+        this._table.primaryKey as string,
+      );
 
-        const executedRecords = updateCommand.execute(executionRecords);
+      const executedRecords = updateCommand.execute(executionRecords);
+      this.collectChanges(updateCommand);
 
-        executedRecords.forEach((record, index) => {
-          resultRecords[updateIndexes[index]] = record as CurrentRecord<T, N>;
-        });
-      }
-
-      if (createCommand) {
-        this.gateway.table(this._table.name, this._table.dbId);
-
-        const createExistingRecords = new SheetRecords(
-          this.gateway.read(),
-          this._table.primaryKey as string,
-        );
-
-        createCommand.execute(createExistingRecords);
-
-        const executedRecords = createCommand.getDiff() as CurrentRecord<
-          T,
-          N
-        >[];
-
-        executedRecords.forEach((record, index) => {
-          resultRecords[createIndexes[index]] = record;
-        });
-      }
-
-      return resultRecords;
-    } finally {
-      this._table.releaseLock();
+      executedRecords.forEach((record, index) => {
+        resultRecords[updateIndexes[index]] = record as CurrentRecord<T, N>;
+      });
     }
+
+    if (createCommand) {
+      this.gateway.table(this._table.name, this._table.dbId);
+
+      const createExistingRecords = new SheetRecords(
+        this.gateway.read(),
+        this._table.primaryKey as string,
+      );
+
+      createCommand.execute(createExistingRecords);
+      this.collectChanges(createCommand);
+
+      const executedRecords = createCommand.getDiff() as CurrentRecord<T, N>[];
+
+      executedRecords.forEach((record, index) => {
+        resultRecords[createIndexes[index]] = record;
+      });
+    }
+
+    return resultRecords;
   }
 
   public delete(primaryKeyValues: any[]): boolean {
+    return this.runWrite([this._table], () =>
+      this.executeDelete(primaryKeyValues),
+    );
+  }
+
+  private executeDelete(primaryKeyValues: any[]): boolean {
     this.gateway.table(this._table.name, this._table.dbId);
 
     const currentRecords = this.gateway.read();
@@ -450,13 +528,10 @@ export class SheetDB<
       return true;
     }
 
-    try {
-      const records = new SheetRecords(currentRecords, primaryKey);
+    const records = new SheetRecords(currentRecords, primaryKey);
 
-      command.execute(records);
-    } finally {
-      this._table.releaseLock();
-    }
+    command.execute(records);
+    this.collectChanges(command);
 
     return true;
   }
@@ -562,51 +637,115 @@ export class SheetDB<
     });
   }
 
-  public transaction<R>(fn: () => R): R {
-    this.transactionEnabled = true;
-
-    try {
-      const result = fn();
-
-      this.tables.forEach((table) => this.commit(table));
-
-      return result;
-    } catch (error) {
-      this.tables.forEach((table) => this.rollback(table));
-
-      throw error;
-    } finally {
-      this.tables.forEach((table) => table.cache.clear());
-
-      this.transactionEnabled = false;
+  private collectChanges(command: WriteCommand): void {
+    for (const { definition: table, change } of command.takeChanges()) {
+      if (!this.afterCommit) continue;
+      const { before, after } = change;
+      const id = (after ?? before)![table.primaryKey as string];
+      const key = JSON.stringify([table.dbId, table.name, id]);
+      const previous = this.changes.get(key);
+      this.changes.set(key, {
+        table: table.name,
+        before: previous ? previous.before : snapshot(before),
+        after: snapshot(after),
+      });
     }
   }
 
-  public commit(table: T[number]): void {
-    this.gateway.table(table.name, table.dbId);
+  private writeTables(
+    roots: readonly SheetTable<string, any>[],
+  ): SheetTable<string, any>[] {
+    const tables = new Set<SheetTable<string, any>>();
+    const visit = (table: SheetTable<string, any>) => {
+      if (tables.has(table)) return;
+      tables.add(table);
+      for (const relation of table.getChildren())
+        visit(relation.childTable as SheetTable<string, any>);
+    };
+    roots.forEach(visit);
+    return [...tables].sort((a, b) =>
+      `${a.dbId}:${a.name}`.localeCompare(`${b.dbId}:${b.name}`),
+    );
+  }
 
-    const cache = table.cache;
-
-    table.lock(this.cache, this.Utilities);
-
+  private runWrite<R>(
+    roots: readonly SheetTable<string, any>[],
+    fn: () => R,
+  ): R {
+    if (this.writeDepth > 0) return fn();
+    const releases: (() => void)[] = [];
+    this.writeDepth++;
+    this.changes.clear();
     try {
-      const records = new SheetRecords(
-        this.gateway.read(),
-        table.primaryKey as string,
+      for (const table of this.writeTables(roots))
+        releases.push(table.holdLock(this.cache, this.Utilities));
+      const result = fn();
+      const changes = [...this.changes.values()].filter(
+        (change) => !snapshotsEqual(change.before, change.after),
       );
-
-      if (!cache.hasExsist()) {
-        cache.setExsist(records);
-      }
-
-      while (cache.hasNext()) {
-        const command = cache.next();
-
-        command.execute(records);
-      }
+      if (changes.length)
+        this.afterCommit?.(changes as TableChange<T[number]>[]);
+      return result;
     } finally {
-      table.releaseLock();
+      this.changes.clear();
+      this.writeDepth--;
+      releases.reverse().forEach((release) => release());
     }
+  }
+
+  public transaction<R>(fn: () => R): R {
+    if (this.transactionEnabled)
+      throw new Error("Nested transactions are not supported.");
+    return this.runWrite(this.tables, () => {
+      this.transactionEnabled = true;
+      const tables = this.writeTables(this.tables);
+      try {
+        // Independent backups also cover nested inserts and cascade effects.
+        for (const table of tables) {
+          this.gateway.table(table.name, table.dbId);
+          table.cache.setExsist(
+            new SheetRecords(
+              snapshot(this.gateway.read()),
+              table.primaryKey as string,
+            ),
+          );
+        }
+        const result = fn();
+        for (const table of this.tables) this.commit(table);
+        return result;
+      } catch (error) {
+        for (const table of tables) this.rollback(table as T[number]);
+        throw error;
+      } finally {
+        tables.forEach((table) => table.cache.clear());
+        this.transactionEnabled = false;
+      }
+    });
+  }
+
+  public commit(table: T[number]): void {
+    this.runWrite([table], () => {
+      this.gateway.table(table.name, table.dbId);
+      const cache = table.cache;
+      if (!cache.hasExsist())
+        cache.setExsist(
+          new SheetRecords(
+            snapshot(this.gateway.read()),
+            table.primaryKey as string,
+          ),
+        );
+      while (cache.hasNext()) {
+        // Other commands may insert/delete records in this table indirectly.
+        this.gateway.table(table.name, table.dbId);
+        const records = new SheetRecords(
+          this.gateway.read(),
+          table.primaryKey as string,
+        );
+        const command = cache.next();
+        command.execute(records);
+        this.collectChanges(command);
+      }
+    });
   }
 
   public rollback(table: T[number]): void {
@@ -616,14 +755,14 @@ export class SheetDB<
       return;
     }
 
-    table.lock(this.cache, this.Utilities);
+    const release = table.holdLock(this.cache, this.Utilities);
 
     try {
       this.gateway.table(table.name, table.dbId);
 
       this.gateway.rewrite(cache.getExsist());
     } finally {
-      table.releaseLock();
+      release();
     }
   }
 

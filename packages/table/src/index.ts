@@ -59,3 +59,12 @@ export function defineTable<
 export function defineTable(definition: TableDefinition): TableDefinition {
   return definition;
 }
+
+/** Independent before/after snapshots of a committed record change. */
+export type TableChange<T extends KeyedTableDefinition> = T extends unknown
+  ? { readonly table: T["name"] } & (
+      | { readonly before: null; readonly after: TableRecord<T> }
+      | { readonly before: TableRecord<T>; readonly after: TableRecord<T> }
+      | { readonly before: TableRecord<T>; readonly after: null }
+    )
+  : never;

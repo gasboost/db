@@ -44,7 +44,7 @@ describe("FirebaseRtdb projectability", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -77,14 +77,15 @@ describe("FirebaseRtdb projectability", () => {
       },
     });
 
-    expect(() =>
-      FirebaseRtdb.generate({
-        tables: [deals] as const,
-        rowLevelSecurity: [security],
-        principal: {
-          userId: "auth.uid",
-        },
-      }),
+    expect(
+      () =>
+        new FirebaseRtdb({
+          tables: [deals] as const,
+          rowLevelSecurity: [security],
+          principal: {
+            userId: "auth.uid",
+          },
+        }),
     ).toThrow(
       "uses or(), which cannot be projected to a single RTDB subscription scope.",
     );
@@ -101,14 +102,15 @@ describe("FirebaseRtdb projectability", () => {
       },
     });
 
-    expect(() =>
-      FirebaseRtdb.generate({
-        tables: [deals] as const,
-        rowLevelSecurity: [security],
-        principal: {
-          userId: "auth.uid",
-        },
-      }),
+    expect(
+      () =>
+        new FirebaseRtdb({
+          tables: [deals] as const,
+          rowLevelSecurity: [security],
+          principal: {
+            userId: "auth.uid",
+          },
+        }),
     ).toThrow(
       "uses exists(), which cannot currently be projected to an RTDB subscription scope.",
     );
@@ -125,7 +127,7 @@ describe("FirebaseRtdb projectability", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {
@@ -146,14 +148,15 @@ describe("FirebaseRtdb projectability", () => {
       },
     });
 
-    expect(() =>
-      FirebaseRtdb.generate({
-        tables: [deals] as const,
-        rowLevelSecurity: [security],
-        principal: {
-          userId: "auth.uid",
-        },
-      }),
+    expect(
+      () =>
+        new FirebaseRtdb({
+          tables: [deals] as const,
+          rowLevelSecurity: [security],
+          principal: {
+            userId: "auth.uid",
+          },
+        }),
     ).toThrow(
       "uses outerColumn(), which cannot currently be projected to an RTDB subscription scope.",
     );
@@ -170,7 +173,7 @@ describe("FirebaseRtdb projectability", () => {
       },
     });
 
-    const rtdb = FirebaseRtdb.generate({
+    const rtdb = new FirebaseRtdb({
       tables: [deals] as const,
       rowLevelSecurity: [security],
       principal: {

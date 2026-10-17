@@ -1767,3 +1767,38 @@ Domain Model の構築や Business Logic は SheetORM の責務ではありま�
 # License
 
 MIT
+
+## 書き込み成功後の Hook（3.3.0〜）
+
+`SheetDBConfig.afterCommit` に同期 Hook を設定すると、通常の `create / update / upsert / delete`
+が成功した後に、ストレージ非依存の `TableChange[]` を受け取れます。
+
+```ts
+import type { AfterCommitHook } from "@gasboost/sheetorm";
+
+const afterCommit: AfterCommitHook<typeof tables> = (changes) => {
+  for (const change of changes) {
+    console.log(change.table, change.before, change.after);
+  }
+};
+
+const db = new SheetDB({
+  tables,
+  gateway,
+  cacheService: CacheService,
+  utilities: Utilities,
+  afterCommit,
+});
+```
+
+- 通常の論理操作ごとに 1 回、Transaction は全シートのコミット成功後にまとめて 1 回呼びます。
+- 同一レコードの複数変更は最初の `before` と最後の `after` に集約します。Create → Delete や元に戻った変更は除き、変更がなければ呼びません。
+- Nested Create / Cascade Delete / Set Null による別テーブルの変更も、完全なスナップショットとして含みます。
+- 既存の `commit(table)` 経由でも通知します。Transaction 内で明示的に commit しても、通知は Transaction の成功後に集約されます。
+- Hook 完了まで既存テーブルロックを保持します。ロック順序を揃えるため、通常操作は対象とその子孫テーブル、Transaction は登録テーブルとその子孫を事前に順序付けして取得します。既存 CacheService ロックの制約・有効期限は同じです。
+- シートの書き込み失敗時は Hook を呼びません。Transaction のシート書き込み失敗は関連テーブルも含めて Rollback します。
+- **Hook の例外は呼び出し元へ伝播しますが、コミット済みシートは Rollback しません。** 外部送信に失敗した場合は、その変更情報を再送するか全同期してください。CRUD 自体をそのまま再実行すると重複作成等の原因になります。
+- Hook は同期関数にしてください。`seed / migrate` は対象外です。
+
+`afterCommit: changes => rtdb.publish(changes)` で `@gasboost/realtime-firebase` に接続できます。
+SheetORM 自体は Firebase や同期用 version に依存しません。`versionColumn` による楽観的ロックは従来どおりです。

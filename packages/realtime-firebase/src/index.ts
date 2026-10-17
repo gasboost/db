@@ -17,3 +17,5 @@ export * from "./FirebaseRtdbTable";
 export * from "./FirebaseRtdbTypes";
 export * from "./FirebaseRtdbValueCompiler";
 export * from "./FirebaseRtdbWriteRuleCompiler";
+export * from "./VersionStore";
+export * from "./FirebaseRtdbRestTransport";

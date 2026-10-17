@@ -21,7 +21,7 @@ import {
   SheetTable,
 } from "../../src";
 
-function setup() {
+function setup(withQuery = true) {
   const employees = new SheetTable({
     dbId: "db",
     name: "employees",
@@ -75,8 +75,10 @@ function setup() {
     principal: { userId: "auth.uid" },
     versionStore: { next },
     transport: { patch },
-    query: ({ table, column, value }) =>
-      db.loadRaw(table.name).filter((record) => record[column] === value),
+    query: withQuery
+      ? ({ table, column, value }) =>
+          db.loadRaw(table.name).filter((record) => record[column] === value)
+      : undefined,
   });
   const afterCommit = vi.fn((changes: Parameters<typeof rtdb.publish>[0]) =>
     rtdb.publish(changes),
@@ -151,6 +153,31 @@ describe("SheetDB afterCommit → RTDB relation partition publication", () => {
       expect(cache.get("db:tasks")).toBeNull();
     },
   );
+
+  it("fails before version allocation or PATCH when a parent-only update has no dependent query", () => {
+    const { db, afterCommit, next, patch, cache } = setup(false);
+    expect(() =>
+      db.table("employees").update([{ id: "e1", ownerId: "bob" }]),
+    ).toThrow("query resolver");
+    expect(afterCommit).toHaveBeenCalledExactlyOnceWith([
+      {
+        table: "employees",
+        before: { id: "e1", ownerId: "alice" },
+        after: { id: "e1", ownerId: "bob" },
+      },
+    ]);
+    expect(next).not.toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+    // A failed publish must leave the committed sheet intact and release locks.
+    expect(db.table("employees").find()).toEqual([
+      { id: "e1", ownerId: "bob" },
+    ]);
+    expect(db.table("tasks").find()).toEqual([
+      { id: "t1", employeeId: "e1", title: "unchanged" },
+    ]);
+    expect(cache.get("db:employees")).toBeNull();
+    expect(cache.get("db:tasks")).toBeNull();
+  });
 
   it("does not duplicate cascaded child deletes when the relation source is deleted", () => {
     const { db, patch, next } = setup();

@@ -240,57 +240,73 @@ describe("FirebaseRtdb.publish", () => {
     );
     expect(transport.patch).not.toHaveBeenCalled();
   });
-  it("resolves relation partitions against before/after snapshots", () => {
-    const tasks = defineTable({
-      name: "tasks",
-      primaryKey: "id",
-      schema: z.object({ id: z.string(), employeeId: z.string() }),
-    });
-    const security = new RowLevelSecurity({
-      table: tasks,
-      select: {
-        using: exists(
-          employees,
-          and(
-            eq(column(employees, "id"), outerColumn(tasks, "employeeId")),
-            eq(
-              column(employees, "ownerId"),
-              principal(z.object({ userId: z.string() }), "userId"),
+  it.each([false, true])(
+    "resolves relation partitions with before/after snapshots (explicitChild=%s)",
+    (explicitChild) => {
+      const tasks = defineTable({
+        name: "tasks",
+        primaryKey: "id",
+        schema: z.object({ id: z.string(), employeeId: z.string() }),
+      });
+      const security = new RowLevelSecurity({
+        table: tasks,
+        select: {
+          using: exists(
+            employees,
+            and(
+              eq(column(employees, "id"), outerColumn(tasks, "employeeId")),
+              eq(
+                column(employees, "ownerId"),
+                principal(z.object({ userId: z.string() }), "userId"),
+              ),
             ),
           ),
-        ),
-      },
-    });
-    const transport = { patch: vi.fn() };
-    const rtdb = new FirebaseRtdb({
-      tables: [employees, tasks],
-      principal: { userId: "auth.uid" },
-      rowLevelSecurity: [security],
-      transport,
-      versionStore: versions(),
-      query: () => [],
-    });
-    rtdb.publish([
-      { table: "employees", before, after: { ...after, ownerId: "bob" } },
-      {
-        table: "tasks",
-        before: { id: "t1", employeeId: "e1" },
-        after: { id: "t1", employeeId: "e1" },
-      },
-    ]);
-    expect(transport.patch.mock.calls[0][0]).toMatchObject({
-      "tasks/__rls/ownerId/alice/t1": {
-        id: "t1",
-        __deleted: true,
-        __syncVersion: 1,
-      },
-      "tasks/__rls/ownerId/bob/t1": {
-        id: "t1",
-        employeeId: "e1",
-        __syncVersion: 1,
-      },
-    });
-  });
+        },
+      });
+      const child = { id: "t1", employeeId: "e1" };
+      const query = vi.fn(() => (explicitChild ? [] : [child]));
+      const versionStore = versions();
+      const transport = { patch: vi.fn() };
+      const rtdb = new FirebaseRtdb({
+        tables: [employees, tasks],
+        principal: { userId: "auth.uid" },
+        rowLevelSecurity: [security],
+        transport,
+        versionStore,
+        query,
+      });
+      const changes: TableChange<typeof employees | typeof tasks>[] = [
+        { table: "employees", before, after: { ...after, ownerId: "bob" } },
+      ];
+      if (explicitChild)
+        changes.push({ table: "tasks", before: child, after: child });
+      // In the parent-only case the caller supplies no child change at all.
+      rtdb.publish(changes);
+      expect(changes).toHaveLength(explicitChild ? 2 : 1);
+      expect(query).toHaveBeenCalledExactlyOnceWith({
+        table: tasks,
+        column: "employeeId",
+        value: "e1",
+      });
+      expect(versionStore.next.mock.calls).toEqual([["employees"], ["tasks"]]);
+      expect(transport.patch).toHaveBeenCalledExactlyOnceWith({
+        "employees/e1": { ...after, ownerId: "bob", __syncVersion: 1 },
+        "tasks/__rls/ownerId/alice/t1": {
+          id: "t1",
+          __deleted: true,
+          __syncVersion: 1,
+        },
+        "tasks/__rls/ownerId/bob/t1": {
+          id: "t1",
+          employeeId: "e1",
+          __syncVersion: 1,
+        },
+        "__gasboost/tableVersions/employees": 1,
+        "__gasboost/tableVersions/tasks/__rls/ownerId/alice": 1,
+        "__gasboost/tableVersions/tasks/__rls/ownerId/bob": 1,
+      });
+    },
+  );
 });
 
 describe("REST transport", () => {

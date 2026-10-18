@@ -162,3 +162,26 @@ void multiplePostTitle;
 void profileBio;
 void nestedPostTitle;
 void nestedCommentBody;
+
+const many = db.findMany(["users", "posts"] as const);
+const manyUserName: string = many.users[0].name;
+const manyPostTitle: string = many.posts[0].title;
+// @ts-expect-error only requested tables appear in the result
+many.comments;
+// @ts-expect-error users records do not have post fields
+many.users[0].title;
+// @ts-expect-error record fields retain their schema type
+const manyWrongId: number = many.posts[0].id;
+// @ts-expect-error unknown tables are rejected
+db.findMany(["users", "unknown"]);
+
+const inferredMany = db.findMany(["users", "profiles"]);
+const inferredBio: string = inferredMany.profiles[0].bio;
+// @ts-expect-error literal input is inferred without as const
+inferredMany.posts;
+const emptyMany = db.findMany([]);
+// @ts-expect-error empty input has no table keys
+emptyMany.users;
+void manyUserName;
+void manyPostTitle;
+void inferredBio;

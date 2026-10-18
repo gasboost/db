@@ -556,49 +556,7 @@ export class SheetDB<
         ? new Set<string>([this._table.name])
         : this.collectQueryTableNames(query);
 
-    this.collectRowLevelSecurityTableNames(tableNames);
-
-    const tables = Array.from(tableNames).map((tableName) => {
-      const table = this.tables.find(
-        (candidate) => candidate.name === tableName,
-      );
-
-      if (!table) {
-        throw new Error(`Table '${tableName}' not found.`);
-      }
-
-      return table;
-    });
-
-    const loaded = this.gateway.readMany(
-      tables.map((table) => ({
-        dbId: table.dbId,
-        sheetName: table.name,
-      })),
-    );
-
-    const recordsByTable = new Map<string, RowLevelSecurityRecord[]>();
-
-    for (const table of tables) {
-      recordsByTable.set(
-        table.name,
-        loaded.get(`${table.dbId}:${table.name}`) ?? [],
-      );
-    }
-
-    const rowLevelSecurity = new RowLevelSecurityEvaluator({
-      principal: this.principal,
-      policies: this.rowLevelSecurity,
-      load: (tableName) => {
-        const records = recordsByTable.get(tableName);
-
-        if (records === undefined) {
-          throw new Error(`Table '${tableName}' was not loaded.`);
-        }
-
-        return records;
-      },
-    });
+    const rowLevelSecurity = this.loadForSelect(tableNames);
 
     if (query === undefined) {
       return rowLevelSecurity.read(this._table);
@@ -634,6 +592,66 @@ export class SheetDB<
       }
 
       return rowLevelSecurity.read(table);
+    });
+  }
+
+  /** Reads independent tables in batches, applying select RLS to every result. */
+  public findMany<const Names extends readonly T[number]["name"][]>(
+    tableNames: Names,
+  ): { [K in Names[number]]: CurrentRecord<T, K>[] } {
+    const rowLevelSecurity = this.loadForSelect(new Set(tableNames));
+
+    return Object.fromEntries(
+      [...new Set(tableNames)].map((name) => [
+        name,
+        rowLevelSecurity.read(this.definition(name)),
+      ]),
+    ) as { [K in Names[number]]: CurrentRecord<T, K>[] };
+  }
+
+  private loadForSelect(tableNames: Set<string>): RowLevelSecurityEvaluator {
+    this.collectRowLevelSecurityTableNames(tableNames);
+
+    const tables = Array.from(tableNames).map((tableName) => {
+      const table = this.tables.find(
+        (candidate) => candidate.name === tableName,
+      );
+
+      if (!table) {
+        throw new Error(`Table '${tableName}' not found.`);
+      }
+
+      return table;
+    });
+
+    const loaded = this.gateway.readMany(
+      tables.map((table) => ({
+        dbId: table.dbId,
+        sheetName: table.name,
+      })),
+    );
+
+    const recordsByTable = new Map<string, RowLevelSecurityRecord[]>();
+
+    for (const table of tables) {
+      recordsByTable.set(
+        table.name,
+        loaded.get(`${table.dbId}:${table.name}`) ?? [],
+      );
+    }
+
+    return new RowLevelSecurityEvaluator({
+      principal: this.principal,
+      policies: this.rowLevelSecurity,
+      load: (tableName) => {
+        const records = recordsByTable.get(tableName);
+
+        if (records === undefined) {
+          throw new Error(`Table '${tableName}' was not loaded.`);
+        }
+
+        return records;
+      },
     });
   }
 

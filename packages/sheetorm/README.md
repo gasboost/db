@@ -573,6 +573,45 @@ users[0].name;
 users[0].email;
 ```
 
+## 複数テーブルの一括取得
+
+`findMany()` は登録済みテーブル名の配列を受け取り、テーブル名をキー、Schema から
+推論した Record 配列を値とするオブジェクトを返します。Query / JOIN は実行しません。
+
+```ts
+const result = db.findMany(["stores", "products", "orders", "orderItems"] as const);
+// result.stores / result.products / result.orders / result.orderItems
+```
+
+各テーブルには `find()` と同じ RLS `select` ポリシーが適用されます。
+`exists()` 等で必要になる関連テーブルも読み込みますが、結果に含めるのは指定テーブルだけです。
+RLS 未設定のテーブルは全件、RLS 設定済みで `select` 未定義のテーブルは空配列を返します。
+
+同じ `dbId` のテーブルと RLS 依存テーブルは、1 回の `Values.batchGet` にまとめます。
+複数の `dbId` がある場合はスプレッドシートごとに呼び出します。
+空の入力は `{}`、空のテーブルは `[]` を返し、重複するテーブル名は一度だけ読み込みます。
+選択中のテーブルは変更しません。
+
+Consumer の初回フル同期用 RPC は、例えば次のように実装できます。
+`createDbForPrincipal` は、認証済みユーザーから生成した `principal` と RLS を設定し、
+上記 4 テーブルを登録した `SheetDB` を返すアプリケーション側の関数です。
+
+```ts
+// GAS 側: 認証・principal の構築はサーバー側で行う
+function fullSync() {
+  const db = createDbForPrincipal();
+  return db.findMany(["stores", "products", "orders", "orderItems"] as const);
+}
+
+// Consumer 側: 1 回の RPC で RLS 適用済みの各テーブルを受け取る
+google.script.run
+  .withSuccessHandler((result) => {
+    replaceLocalTables(result); // Consumer 側のローカルデータを置き換える処理
+  })
+  .withFailureHandler((error) => console.error(error))
+  .fullSync();
+```
+
 ---
 
 # Update

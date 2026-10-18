@@ -152,7 +152,7 @@ jobs:
         run: pnpm --filter @gasboost/realtime-firebase test
 
       - name: Build realtime-firebase
-        if: ${{ needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+        if: ${{ needs.check-versions.outputs.publish-realtime-firebase == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/realtime-firebase build
 
       - name: Verify realtime-firebase package contents

@@ -77,6 +77,26 @@ describe("FirebaseRtdbRestTransport service-account OAuth", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["actual newlines", privateKey],
+    ["escaped newlines", privateKey.replace(/\n/g, "\\n")],
+  ])("passes a normalized key to OAuth JWT signing with %s", (_, key) => {
+    const { transport, config, credentialsProvider, fetch } = setup();
+    const sign = vi.spyOn(config.utilities, "computeRsaSha256Signature");
+    const account = { ...credentials, privateKey: key };
+    credentialsProvider.mockReturnValue(account);
+
+    transport.patch({});
+
+    const form = new URLSearchParams(fetch.mock.calls[0][1].payload);
+    const [header, payload] = form.get("assertion")!.split(".");
+    expect(sign).toHaveBeenCalledExactlyOnceWith(
+      `${header}.${payload}`,
+      privateKey,
+    );
+    expect(account.privateKey).toBe(key);
+  });
+
   it("exchanges a signed RS256 assertion and sends an authorized PATCH", () => {
     const { transport, fetch, cache, credentialsProvider } = setup();
     transport.patch({ "employees/e1": { id: "e1" } });

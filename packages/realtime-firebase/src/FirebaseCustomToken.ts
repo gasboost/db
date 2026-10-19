@@ -1,3 +1,5 @@
+import { normalizePrivateKey } from "./normalizePrivateKey";
+
 export type FirebaseCustomTokenUtilities = {
   base64EncodeWebSafe(data: string | ArrayLike<number>): string;
 
@@ -103,7 +105,7 @@ export class FirebaseCustomToken {
 
     const signature = utilities.computeRsaSha256Signature(
       unsignedToken,
-      serviceAccount.privateKey,
+      normalizePrivateKey(serviceAccount.privateKey),
     );
 
     const encodedSignature = utilities

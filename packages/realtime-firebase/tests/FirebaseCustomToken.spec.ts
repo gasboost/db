@@ -1,6 +1,6 @@
 import { NodeUtilities } from "@gasboost/fake-node";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { FirebaseCustomToken } from "../src/FirebaseCustomToken";
 
@@ -23,6 +23,28 @@ describe("FirebaseCustomToken", () => {
     email: "firebase-adminsdk@example.iam.gserviceaccount.com",
     privateKey,
   };
+
+  it.each([
+    ["actual newlines", privateKey],
+    ["escaped newlines", privateKey.replace(/\n/g, "\\n")],
+  ])("passes a normalized key to Custom Token signing with %s", (_, key) => {
+    const signingUtilities = new NodeUtilities();
+    const sign = vi.spyOn(signingUtilities, "computeRsaSha256Signature");
+    const account = { ...serviceAccount, privateKey: key };
+
+    const token = FirebaseCustomToken.generate({
+      uid: "user-1",
+      serviceAccount: account,
+      utilities: signingUtilities,
+    });
+
+    const [header, payload] = token.split(".");
+    expect(sign).toHaveBeenCalledExactlyOnceWith(
+      `${header}.${payload}`,
+      privateKey,
+    );
+    expect(account.privateKey).toBe(key);
+  });
 
   it("Firebase Custom Tokenを生成する", () => {
     const token = FirebaseCustomToken.generate({

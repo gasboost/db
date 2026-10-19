@@ -7,15 +7,33 @@ FrontendはFirebase公式SDKで通知を購読し、TanStack Queryなどのキ�
 ## インストールとエントリーポイント
 
 ```bash
-pnpm add @gasboost/realtime-firebase
+pnpm add @gasboost/realtime-firebase @gasboost/table zod
 ```
 
 - Backend（GAS）: `@gasboost/realtime-firebase`
 - Frontend（Browser）: `@gasboost/realtime-firebase/client`
 
-`/client` は純粋関数 `versionPath(tableName: string): string` のみを公開します。
+`/client` は純粋関数 `versionPath(table: TableDefinition): string` のみを公開します。
 GAS globals・サーバー用モジュール・Firebase SDKをruntime importせず、Firebase初期化・購読・状態管理も行いません。
-パッケージにランタイム依存はありません。FrontendのFirebase SDKやTanStack Queryは利用側で用意してください。
+`TableDefinition` は既存の `@gasboost/table` からtype-only importします。FrontendのFirebase SDKやTanStack Queryは利用側で用意してください。
+
+## Backend / Frontendでテーブル定義を共有する
+
+```ts
+// shared/tables.ts（Consumer側の共有モジュール）
+import { defineTable } from "@gasboost/table";
+import { z } from "zod";
+
+export const productsTable = defineTable({
+  name: "products",
+  schema: z.object({ id: z.string(), name: z.string() }),
+  primaryKey: "id",
+});
+```
+
+BackendのSheetTableにも同じ定義を使い（例: `new SheetTable({ ...productsTable, dbId })`）、
+Frontendは共有モジュールの `productsTable` を `versionPath()` に渡します。
+テーブル名を `items` に変更すると、SheetORMの `change.table` とFrontendの通知先も同じ定義に追従します。
 
 ## Backend: SheetORMのafterCommitから通知する
 
@@ -79,6 +97,23 @@ rtdb.publish([
 - 未変更の依存テーブルを列挙しません。Cascade削除などで実際の子の変更も配列に含まれる場合は親子双方を通知します。
 - 親の値に依存するQueryは、親テーブルの通知でも無効化するようFrontendを設定してください。
 
+### RTDBパスの正規化と衝突
+
+Backendの `publish()` とFrontendの `versionPath()` は同じBrowser-safeな関数で、テーブル名から
+制御文字（U+0000〜U+001F、U+007F〜U+009F）と `.` / `#` / `$` / `[` / `]` / `/` を取り除きます。
+例えば `sales.2026` は `/syncVersions/sales2026`、有効な `products` は `/syncVersions/products` になります。
+SheetORM / `@gasboost/table` の論理テーブル名は変更せず、VersionStoreの採番キーも元の名前を使用します。
+
+正規化後が空の場合は両APIが例外を投げます。Backendは同一publish内、および同一 `FirebaseRtdb` インスタンスで
+既に検証した通知先と、異なる論理テーブル名が衝突する場合も例外を投げます。
+例: `sales.2026` と `sales2026` を同じ通知先として黙って共有せず、採番・PATCHの前に停止します。
+同じ論理名の重複は衝突とせず、従来どおり1回だけ採番します。
+
+**正規化は情報を失うため、共有する全テーブル定義で正規化後の名前が一意になるようにしてください。**
+Frontendのパス関数は純粋関数であり、他の定義を知りません。Backendの衝突履歴も永続化しないため、
+別インスタンスやGASの別実行にまたがって、別々にしか登場しないテーブル間の衝突は検出できません。
+衝突した場合は共有定義の論理名を一意な通知先になるように見直してください。自動で別名やsuffixは割り当てません。
+
 ### VersionStoreと失敗時の扱い
 
 `PropertiesVersionStore` は `rtdb:version:<tableName>` をScript Propertiesに保存します。
@@ -140,11 +175,12 @@ BackendのService AccountがREST APIで通知を書き込みます。
 ```ts
 import { versionPath } from "@gasboost/realtime-firebase/client";
 import { onValue, ref } from "firebase/database";
+import { productsTable } from "./shared/tables";
 
 // databaseは初期化済みのFirebase Database、queryClientはTanStack QueryのQueryClient。
 // Firebase Authenticationのsign-in完了後に購読します。
 const unsubscribe = onValue(
-  ref(database, versionPath("employees")),
+  ref(database, versionPath(productsTable)),
   () => {
     void queryClient.invalidateQueries({ queryKey: ["staff"] });
   },
@@ -154,7 +190,7 @@ const unsubscribe = onValue(
 unsubscribe();
 ```
 
-`versionPath("employees")` は `/syncVersions/employees` を返します。
+`versionPath(productsTable)` は `/syncVersions/products` を返します。文字列や独自の定義型を渡す必要はありません。
 Queryの取得関数にはGAS RPCを設定してください。初回・再接続時も現在値のイベントで再取得できます。
 Firebase SDKの購読ラッパーやTanStack Query専用hookは提供しません。
 
@@ -185,7 +221,7 @@ Custom Tokenも秘密鍵のリテラルの `\n` を署名直前に正規化し�
 0.8.0では旧レコード複製用APIを削除しました。
 
 - `new FirebaseRtdb({ versionStore, transport })` に変更し、`tables` / `principal` / `rowLevelSecurity` / `resolve` / `query` を取り除きます。
-- Frontendのパス取得を `@gasboost/realtime-firebase/client` の `versionPath(tableName)` に置き換えます。
+- Frontendのパス取得を `@gasboost/realtime-firebase/client` の `versionPath(sharedTableDefinition)` に置き換えます。
 - 新しい `rtdb.rules()` をFirebaseへ適用し、通知を契機としたGAS RPCの再取得を使用します。
 - 旧layout・record/scope・RLSコンパイラのクラスと関連型はexportされません。
 

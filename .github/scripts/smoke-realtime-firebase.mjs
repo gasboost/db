@@ -10,11 +10,24 @@ import {
   FirebaseCustomToken, FirebaseRtdb, FirebaseRtdbRestTransport, PropertiesVersionStore,
   type FirebaseServiceAccount, type FirebaseCustomTokenUtilities, type VersionStore,
 } from "@gasboost/realtime-firebase";
+import { productsTable } from "./shared";
 const rtdb = new FirebaseRtdb({ versionStore: { next: () => 1 }, transport: { patch: () => {} } });
-rtdb.publish([{ table: "employees" }]);
+rtdb.publish([{ table: productsTable.name }]);
 void [FirebaseCustomToken, FirebaseRtdbRestTransport, PropertiesVersionStore, rtdb.rules()];
 `);
-writeFileSync("client.ts", 'export { versionPath } from "@gasboost/realtime-firebase/client";\n');
+writeFileSync("shared.ts", `
+import { defineTable } from "@gasboost/table";
+import { z } from "zod";
+export const productsTable = defineTable({
+  name: "sales.2026", schema: z.object({ id: z.string() }), primaryKey: "id",
+});
+`);
+writeFileSync("client.ts", `
+import { versionPath } from "@gasboost/realtime-firebase/client";
+import { productsTable } from "./shared";
+export const productsPath = versionPath(productsTable);
+export const renamedPath = versionPath({ ...productsTable, name: "items" });
+`);
 writeFileSync("tsconfig.json", JSON.stringify({
   compilerOptions: {
     target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext",
@@ -37,14 +50,17 @@ for (const output of outputs) {
     if (chunk.type !== "chunk") continue;
     assert.deepEqual(chunk.imports, []);
     assert.deepEqual(chunk.dynamicImports, []);
-    // The only package module in the browser bundle must be its client entry.
+    // Only the client entry and shared sanitizer may enter the browser bundle.
     const modules = Object.keys(chunk.modules).filter((id) => id.includes("/realtime-firebase/"));
     assert.ok(modules.some((id) => id.endsWith("/dist/client.js")));
-    assert.ok(modules.every((id) => id.endsWith("/dist/client.js")));
+    assert.ok(modules.every((id) =>
+      id.endsWith("/dist/client.js") || id.endsWith("/dist/sanitizeTableName.js"),
+    ));
   }
 }
 const browser = {};
 runInNewContext(readFileSync("bundle/client.js", "utf8"), browser);
-assert.deepEqual(Object.keys(browser.ClientSmoke), ["versionPath"]);
-assert.equal(browser.ClientSmoke.versionPath("employees"), "/syncVersions/employees");
+assert.deepEqual(Object.keys(browser.ClientSmoke).sort(), ["productsPath", "renamedPath"]);
+assert.equal(browser.ClientSmoke.productsPath, "/syncVersions/sales2026");
+assert.equal(browser.ClientSmoke.renamedPath, "/syncVersions/items");
 console.log("Packed backend types and isolated browser client bundle passed.");

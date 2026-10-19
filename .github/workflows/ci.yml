@@ -78,13 +78,16 @@ jobs:
 
       - name: Pack and smoke test realtime-firebase backend and browser client
         run: |
+          pnpm --filter @gasboost/table pack
           pnpm --filter @gasboost/realtime-firebase pack
+          TABLE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-table-*.tgz' -print -quit)"
           REALTIME_FIREBASE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-realtime-firebase-*.tgz' -print -quit)"
           CONSUMER_DIR="$(mktemp -d)"
           cp .github/scripts/smoke-realtime-firebase.mjs "$CONSUMER_DIR/smoke.mjs"
           cd "$CONSUMER_DIR"
           pnpm init
-          pnpm add "$REALTIME_FIREBASE_PACKAGE_FILE"
+          pnpm pkg set "pnpm.overrides.@gasboost/table=file:$TABLE_PACKAGE_FILE"
+          pnpm add "$REALTIME_FIREBASE_PACKAGE_FILE" "$TABLE_PACKAGE_FILE" zod
           pnpm add -D typescript vite
           node smoke.mjs
 

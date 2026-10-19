@@ -112,9 +112,9 @@ function setup(withQuery = true) {
   return { db, afterCommit, patch, next, cache };
 }
 
-describe("SheetDB afterCommit → RTDB relation partition publication", () => {
+describe("SheetDB afterCommit → RTDB table version notifications", () => {
   it.each([false, true])(
-    "moves unchanged children after ordinary parent CRUD (transaction=%s)",
+    "notifies only the changed parent table (transaction=%s)",
     (transaction) => {
       const { db, afterCommit, patch, next, cache } = setup();
       const update = () =>
@@ -129,23 +129,9 @@ describe("SheetDB afterCommit → RTDB relation partition publication", () => {
         },
       ]);
       expect(patch).toHaveBeenCalledExactlyOnceWith({
-        "employees/e1": { id: "e1", ownerId: "bob", __syncVersion: 1 },
-        "tasks/__rls/ownerId/alice/t1": {
-          id: "t1",
-          __deleted: true,
-          __syncVersion: 1,
-        },
-        "tasks/__rls/ownerId/bob/t1": {
-          id: "t1",
-          employeeId: "e1",
-          title: "unchanged",
-          __syncVersion: 1,
-        },
-        "__gasboost/tableVersions/employees": 1,
-        "__gasboost/tableVersions/tasks/__rls/ownerId/alice": 1,
-        "__gasboost/tableVersions/tasks/__rls/ownerId/bob": 1,
+        "syncVersions/employees": 1,
       });
-      expect(next.mock.calls).toEqual([["employees"], ["tasks"]]);
+      expect(next).toHaveBeenCalledExactlyOnceWith("employees");
       expect(db.table("tasks").find()).toEqual([
         { id: "t1", employeeId: "e1", title: "unchanged" },
       ]);
@@ -154,62 +140,59 @@ describe("SheetDB afterCommit → RTDB relation partition publication", () => {
     },
   );
 
-  it("fails before version allocation or PATCH when a parent-only update has no dependent query", () => {
-    const { db, afterCommit, next, patch, cache } = setup(false);
+  it("publishes without a dependent query resolver", () => {
+    const { db, next, patch } = setup(false);
+    db.table("employees").update([{ id: "e1", ownerId: "bob" }]);
+    expect(next).toHaveBeenCalledExactlyOnceWith("employees");
+    expect(patch).toHaveBeenCalledExactlyOnceWith({
+      "syncVersions/employees": 1,
+    });
+  });
+
+  it("propagates publish failure while preserving committed data and releasing locks", () => {
+    const { db, next, patch, cache } = setup(false);
+    patch.mockImplementationOnce(() => {
+      throw new Error("offline");
+    });
     expect(() =>
       db.table("employees").update([{ id: "e1", ownerId: "bob" }]),
-    ).toThrow("query resolver");
-    expect(afterCommit).toHaveBeenCalledExactlyOnceWith([
-      {
-        table: "employees",
-        before: { id: "e1", ownerId: "alice" },
-        after: { id: "e1", ownerId: "bob" },
-      },
-    ]);
-    expect(next).not.toHaveBeenCalled();
-    expect(patch).not.toHaveBeenCalled();
-    // A failed publish must leave the committed sheet intact and release locks.
+    ).toThrow("offline");
     expect(db.table("employees").find()).toEqual([
       { id: "e1", ownerId: "bob" },
     ]);
-    expect(db.table("tasks").find()).toEqual([
-      { id: "t1", employeeId: "e1", title: "unchanged" },
-    ]);
     expect(cache.get("db:employees")).toBeNull();
     expect(cache.get("db:tasks")).toBeNull();
+    db.table("employees").update([{ id: "e1", ownerId: "charlie" }]);
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(patch.mock.calls[1][0]).toEqual({ "syncVersions/employees": 2 });
   });
 
-  it("does not duplicate cascaded child deletes when the relation source is deleted", () => {
+  it("notifies parent and cascaded child deletion in one PATCH without tombstones", () => {
     const { db, patch, next } = setup();
     db.table("employees").delete(["e1"]);
     expect(patch).toHaveBeenCalledExactlyOnceWith({
-      "employees/e1": { id: "e1", __deleted: true, __syncVersion: 1 },
-      "tasks/__rls/ownerId/alice/t1": {
-        id: "t1",
-        __deleted: true,
-        __syncVersion: 1,
-      },
-      "__gasboost/tableVersions/employees": 1,
-      "__gasboost/tableVersions/tasks/__rls/ownerId/alice": 1,
+      "syncVersions/employees": 1,
+      "syncVersions/tasks": 1,
     });
-    expect(next).toHaveBeenCalledTimes(2);
+    expect(next.mock.calls).toEqual([["employees"], ["tasks"]]);
     expect(db.table("tasks").find()).toEqual([]);
   });
 
-  it("keeps actual child updates when parent and child change in the same transaction", () => {
-    const { db, patch, next } = setup();
+  it("notifies each changed table once per transaction", () => {
+    const { db, patch, next, afterCommit } = setup();
     db.transaction(() => {
       db.table("employees").update([{ id: "e1", ownerId: "bob" }]);
       db.table("tasks").update([
         { id: "t1", employeeId: "e1", title: "edited" },
       ]);
+      db.table("tasks").create([
+        { id: "t2", employeeId: "e1", title: "created" },
+      ]);
     });
-    expect(patch).toHaveBeenCalledTimes(1);
-    expect(patch.mock.calls[0][0]["tasks/__rls/ownerId/bob/t1"]).toEqual({
-      id: "t1",
-      employeeId: "e1",
-      title: "edited",
-      __syncVersion: 1,
+    expect(afterCommit).toHaveBeenCalledTimes(1);
+    expect(patch).toHaveBeenCalledExactlyOnceWith({
+      "syncVersions/employees": 1,
+      "syncVersions/tasks": 1,
     });
     expect(next.mock.calls).toEqual([["employees"], ["tasks"]]);
   });

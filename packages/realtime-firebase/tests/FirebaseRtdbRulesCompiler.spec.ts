@@ -40,8 +40,9 @@ describe("FirebaseRtdb rules", () => {
 
     expect(rtdb.rules()).toEqual({
       rules: {
-        __gasboost: {
-          tableVersions: { ".write": false, deals: { ".read": true } },
+        syncVersions: {
+          ".write": false,
+          deals: { ".read": "auth != null" },
         },
         deals: {
           ".read": true,

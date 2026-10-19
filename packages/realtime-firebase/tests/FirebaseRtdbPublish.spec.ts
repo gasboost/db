@@ -184,31 +184,57 @@ describe("FirebaseRtdb.publish", () => {
       "syncVersions/employees": 1,
     });
   });
-  it("indexes the record scope and restricts version metadata to the same RLS principal", () => {
+  it.each([false, true])(
+    "aligns publish, versionPath and readable notification rules (RLS=%s)",
+    (secured) => {
+      const { rtdb, transport } = setup(secured);
+      const table = rtdb.table("employees");
+      const path = table.versionPath({ userId: "alice" });
+      expect(path).toBe("/syncVersions/employees");
+      expect(table.versionPath({ userId: "bob" })).toBe(path);
+      rtdb.publish([{ table: "employees", before, after }]);
+      expect(transport.patch).toHaveBeenCalledExactlyOnceWith({
+        [path.slice(1)]: 1,
+      });
+      const rules = rtdb.rules().rules;
+      const notification = path
+        .slice(1)
+        .split("/")
+        .reduce((node, segment) => node[segment], rules as any);
+      expect(notification).toEqual({ ".read": "auth != null" });
+      expect(rules.syncVersions).toEqual({
+        ".write": false,
+        employees: { ".read": "auth != null" },
+        departments: { ".read": "auth != null" },
+      });
+      expect(rules).not.toHaveProperty("__gasboost");
+      expect(rules[".read"]).toBeUndefined();
+      expect(rules[".write"]).toBeUndefined();
+    },
+  );
+  it("preserves record RLS while allowing authenticated table notifications", () => {
     const { rtdb } = setup(true);
     const rules = rtdb.rules().rules as any;
     const scope = rules.employees.__rls.ownerId.$scope0;
-    const metadata =
-      rules.__gasboost.tableVersions.employees.__rls.ownerId.$scope0;
-    expect(scope[".indexOn"]).toBe("__syncVersion");
     expect(scope[".read"]).toBe(
       "auth != null && ($scope0 === (auth.uid + ''))",
     );
-    expect(metadata[".read"]).toBe(scope[".read"]);
     expect(rules.employees[".read"]).toBeUndefined();
-    expect(rules.__gasboost.tableVersions[".read"]).toBeUndefined();
-    expect(rules.__gasboost.tableVersions[".write"]).toBe(false);
-    // Scope reads are inherited by the tombstones; no domain RLS attributes are required.
+    expect(rules.syncVersions.employees[".read"]).toBe("auth != null");
   });
-  it("denies metadata reads for a table without select permission", () => {
+  it("provides notifications even when record select permission is absent", () => {
     const rtdb = new FirebaseRtdb({
       tables: [employees],
       principal: {},
       rowLevelSecurity: [new RowLevelSecurity({ table: employees })],
     });
-    expect(
-      (rtdb.rules().rules.__gasboost as any).tableVersions.employees[".read"],
-    ).toBe(false);
+    expect(rtdb.table("employees").versionPath({})).toBe(
+      "/syncVersions/employees",
+    );
+    const rules = rtdb.rules().rules as any;
+    expect(rules.employees[".read"]).toBe(false);
+    expect(rules.syncVersions.employees[".read"]).toBe("auth != null");
+    expect(rules.syncVersions[".write"]).toBe(false);
   });
   it("propagates PATCH failure and publishes the next version on retry", () => {
     const { rtdb, transport } = setup();

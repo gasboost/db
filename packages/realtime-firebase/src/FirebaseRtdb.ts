@@ -107,7 +107,7 @@ export class FirebaseRtdb<
     this.ensureSingleHopRelationTargets();
   }
 
-  /** Publish once per logical commit. Retry the same changes or perform a full resync on error. */
+  /** Notify changed table versions once per logical commit; retry on error. */
   public publish(changes: readonly TableChange<T[number]>[]): void {
     if (changes.length === 0) return;
 
@@ -255,9 +255,9 @@ export class FirebaseRtdb<
     const names = new Set<string>();
 
     for (const table of this.tableDefinitions) {
-      if (table.name === "__gasboost")
+      if (table.name === "__gasboost" || table.name === "syncVersions")
         throw new Error(
-          "Table name '__gasboost' is reserved for RTDB metadata.",
+          `Table name '${table.name}' is reserved for RTDB metadata.`,
         );
       if (names.has(table.name)) {
         throw new Error(`Table '${table.name}' is defined more than once.`);

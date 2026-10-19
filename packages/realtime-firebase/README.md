@@ -4,6 +4,11 @@
 
 ## 概要
 
+0.7.0 から `publish(changes)` は、変更されたテーブルの `/syncVersions/{tableName}` に数値の Version だけを通知します。
+Frontend は通知を受けて TanStack Query のキャッシュを無効化し、GAS RPC から正本を再取得します。
+レコード本体は RTDB へ複製しません。下記の RLS layout・`record()`・`scope()` は引き続き利用できる独立した API であり、
+`publish()` の通知先や取得方式を表すものではありません。
+
 `@gasboost/realtime-firebase` は、Gasboost の他のデータ層と同じ Row Level Security 定義を利用します。
 
 ```text
@@ -1095,7 +1100,7 @@ primaryKey
        └─ Custom Token generation
 ```
 
-Firebase への通信は Firebase 公式 SDK が担当します。
+Frontend の購読は Firebase 公式 SDK、GAS からの Version 通知は `FirebaseRtdbRestTransport` が担当します。
 
 Firebase Authentication の client-side sign in も Firebase 公式 SDK が担当します。
 
@@ -1131,13 +1136,16 @@ FirebaseRtdb
 
 MIT
 
-## 差分同期の publish（0.5.0〜）
+## テーブル Version の通知（0.7.0〜）
 
 `new FirebaseRtdb(config)` に初期化 API を統一しました。旧 `FirebaseRtdb.generate(config)` と
 `rtdb.employees` 形式の動的プロパティは廃止し、`rtdb.table("employees")` を使用します。
 
-`publish(changes)` は同期メソッドです。テーブルごとに 1 回だけ version を採番し、レコード・削除情報・version
-メタデータを 1 回の root multi-location PATCH で atomic に公開します。採番のための RTDB GET は行いません。
+`publish(changes)` は同期メソッドです。変更されたテーブルごとに 1 回だけ Version を採番し、
+`syncVersions/{tableName}` の数値を 1 回の root multi-location PATCH でまとめて更新します。
+Create / Update / Delete はすべて同じ通知です。同一テーブルの変更が複数件あっても採番は 1 回です。
+空配列では採番も PATCH も行わず、採番のための RTDB GET も行いません。
+既存の `afterCommit: changes => rtdb.publish(changes)` はそのまま使用できます。
 
 ```ts
 import { z } from "zod";
@@ -1210,27 +1218,46 @@ OAuth flow の詳細は [Google の仕様](https://developers.google.com/identit
 任意の同期 `RtdbTransport`（`patch(updates): void`）や `VersionStore`（`next(tableName): number`）も注入できます。
 パス・Rules 生成だけならどちらの設定も不要です。
 
-### 同期プロトコル
+### 通知先と Frontend の再取得
 
 | データ | 保存先・値 |
 | --- | --- |
-| 通常レコード | `table(name).record(record)` のパスに `{ ...record, __syncVersion: version }` |
-| 削除 | 同じレコード集合に `{ [primaryKey]: id, __deleted: true, __syncVersion: version }` |
-| RLS なしの tableVersion | `/__gasboost/tableVersions/<tableName>` に数値 |
-| RLS 付きの scope version | `/__gasboost/tableVersions` + `table(name).scope(principal)` に数値 |
+| テーブル Version | `/syncVersions/{tableName}` に数値 |
 
-`table(name).versionPath(principal)` で Frontend が読む version パスを得られます。
-RLS 付きテーブルではテーブル単位に採番した同じ version を、今回変更された各 scope に公開します。
-別 scope のみの変更では自 scope の version は変わりません。自 scope のレコードに差分がないため、取得を省略できます。
-旧 partition → 新 partition の移動では旧パスに tombstone を残し、両 scope の version を更新します。
-メタデータの read 条件はレコード集合の scope と同じで、全 scope の version 一覧の読み取りやクライアントからの変更は許可しません。
+`table(name).versionPath(principal)` は `/syncVersions/{tableName}` を返します。
+互換性のため引数は維持しますが、Principal の値や RLS partition によって通知先は変わりません。
+生成 Rules は、定義された各テーブルの通知を Firebase Authentication の認証済みユーザー全員に許可します
+（`.read: "auth != null"`）。未認証の読み取り、`syncVersions` 全体の一括読み取り、クライアントの書き込みは許可しません。
+Version はテーブル全体の変更を表すため、自分の取得結果に影響しない変更でも通知されます。
+レコードへのアクセス権限は GAS RPC / SheetORM 側の RLS で判定してください。
 
-`__syncVersion` / `__deleted` は RTDB 専用の予約フィールド、`__gasboost` は予約テーブル名です。
-ドメインの `version` カラムには干渉しません。入力の `TableChange` は変更しません。
-Rules はレコード集合の `.indexOn: "__syncVersion"` を生成します。Frontend は認可された scope を
-`orderByChild("__syncVersion")` と `startAt(localVersion + 1)` で読み、tombstone を含めて適用してください。
-RTDB の read 権限は子孫に継承されるため、tombstone は元レコードの属性や関連レコードがなくても、自 scope の read 条件で安全に取得できます。
-Frontend Replica の取得・適用 API 自体は別途提供予定です。
+Frontend では秘密鍵を含めず、共有のテーブル定義からパスを取得し、Firebase SDK で購読します。
+例えば TanStack Query のキーが `["employees", ...]` なら、次のように無効化できます。
+
+```ts
+import type { QueryClient } from "@tanstack/react-query";
+import { onValue, ref, type Database } from "firebase/database";
+
+// rtdb は Frontend 用の FirebaseRtdb（tables / principal のみで構築可能）。
+function subscribeEmployees(
+  database: Database,
+  queryClient: QueryClient,
+  userId: string,
+) {
+  return onValue(
+    ref(database, rtdb.table("employees").versionPath({ userId })),
+    () => {
+      void queryClient.invalidateQueries({ queryKey: ["employees"] });
+    },
+  );
+}
+// 認証完了後に購読し、画面の破棄時には返された unsubscribe を呼びます。
+```
+
+初回・再接続時も現在値のイベントを使って再取得します。Query の取得関数には GAS RPC を設定してください。
+`publish()` はレコード本体、削除 tombstone、`__syncVersion`、RLS partition 別 projection を送信しません。
+入力の `TableChange` は変更せず、`query` / `resolve` を呼び出したり、未変更の依存レコードを列挙したりもしません。
+`syncVersions` と従来の `__gasboost` は予約テーブル名です。
 
 ### Properties・失敗時の扱い
 
@@ -1239,56 +1266,28 @@ VersionStore はロックを実装しません。同じテーブルを公開す�
 SheetORM の `afterCommit` 経由ではシート更新から publish 完了までロックが保持されます。
 直接 `publish()` を呼ぶ場合も、呼び出し元で同じロック境界を確保します。
 
-**採番後の PATCH 失敗では欠番を許容しますが、失敗した差分は自動復旧しません。**
-例外が出たら未送信の `TableChange[]` を保持し、次の更新を進める前に同じ変更を再送するか、シートの正本から全同期してください。
-変更配列を保存せず次のコミットだけ公開すると、未反映のレコードを取り逃す可能性があります。
-再送時は新しい version を採番します。Properties と RTDB をまたぐ分散 Transaction や自動 outbox は提供しません。
-`seed / migrate` による初期同期は Hook 対象外なので、初期レコードを `before: null` の変更配列として別途 publish してください。
+VersionStore / Transport の例外は呼び出し元へ伝播します。採番後の PATCH 失敗では欠番を許容します。
+失敗したテーブルの通知を再送するには同じ変更配列で `publish()` を再実行してください。再送時は新しい Version を採番します。
+通知を受けた Frontend は差分を適用せず正本を再取得するため、Version の連続性は不要です。
+失敗した通知は自動再送されず、該当テーブルの次の成功通知または明示的な再取得までキャッシュが古いままになる場合があります。
+Properties と RTDB をまたぐ分散 Transaction や自動 outbox は提供しません。
+`seed / migrate` は Hook 対象外です。必要なら変更配列を別途 publish して再取得を通知してください。
 
-### 関連レコードで partition を決める場合
+### 関連テーブルの変更
 
-`publish` は同じ変更配列内の関連レコードを `before / after` ごとに解決します。
-親の partition 元カラムが変わった場合は、config の同期 `query(request)` で依存する子を列挙し、
-未変更の子も自動的に旧 scope の tombstone と新 scope の live record に移動します。
-呼び出し元による変更配列の補完は不要で、`afterCommit: changes => rtdb.publish(changes)` のまま利用できます。
-親削除時に残った依存レコードは旧 scope を tombstone 化します。
-同じコミットに実際の子の Create / Update / Delete / 再所属が含まれる場合は、その完全な `before / after` を優先して重複を防ぎます。
-子テーブルの version も 1 回だけ採番し、親・子と両 scope のメタデータを同じ PATCH に含めます。
+親の属性変更だけでは、未変更の子テーブルの Version は更新しません。
+Cascade 削除などで子の実際の変更も SheetORM の変更配列に含まれる場合は、親子の Version を同じ PATCH で通知します。
+親の値に依存する Query は、親テーブルの通知でも無効化するよう Frontend 側で購読を設定してください。
+`query` / `resolve` は通知に不要で、既存の `record()` / `scope()` と RLS コンパイラの API は維持します。
 
-`query` の契約は `{ table, column, value }` に対し、`record[column] === value` の**コミット済み正本レコードを全件**、
-完全な形で同期的に返すことです。RLS による絞り込みやページングで依存レコードを欠落させないでください。
-`query` は変更配列にない関連レコードの単件解決にも使用するため、通常はこのアダプターだけで接続できます。
-既存の `resolve(request)` を設定した場合は単件解決でそちらを優先します。
-同じ equality query は 1 回の publish 内でキャッシュします。
-親の partition 変更時に `query` が未設定、非同期、失敗した場合は採番・PATCH 前に例外とし、不完全な公開を防ぎます。
-partition に関係のない親カラムの変更では依存レコードを query しません。
+### 0.6.x からの移行
 
-SheetORM の例では、参照を `SheetTable.reference()` にも登録しておくと、親の通常 CRUD でも子の既存ロックが
-Hook 完了まで保持されます。Transaction では登録テーブル全体をロックします。
-直接 publish する場合も、query 対象の親・子を同じロック境界に含めてください。
+0.7.0 は publish protocol の互換性を変更するリリースです。
 
-```ts
-// employees / tasks は SheetTable。RLS の relation と同じ参照を登録する。
-tasks.reference("employeeId", employees, "id", "cascade");
-const tables = [employees, tasks] as const;
-let db: SheetDB<typeof tables>;
-const rtdb = new FirebaseRtdb({
-  tables,
-  rowLevelSecurity: [taskSecurity],
-  principal: { userId: "auth.uid" },
-  versionStore,
-  transport,
-  query: ({ table, column, value }) =>
-    db.loadRaw(table.name).filter(record => record[column] === value),
-});
-db = new SheetDB({
-  tables,
-  gateway,
-  cacheService: CacheService,
-  utilities: Utilities,
-  afterCommit: changes => rtdb.publish(changes),
-});
-// 以降は親の通常 CRUD だけで未変更の子の partition 移動も自動公開される。
-```
+- Backend と Frontend のパッケージを更新し、新しい `rtdb.rules()` を Firebase へ適用します。
+- `versionPath(principal)` は新通知先を返します。旧 `__gasboost/tableVersions/...` の購読を置き換えます。
+- RTDB レコードを `orderByChild("__syncVersion")` で差分取得する処理を、Version 通知に基づく GAS RPC の再取得へ置き換えます。
+- レコード・tombstone の複製や依存レコードの自動移動を前提とした処理を更新します。
 
-既存の single-hop relation 制約は維持します。採番後の PATCH 失敗時は上記と同じ再送・全同期の方針に従ってください。
+既存 RTDB データの削除・移行は自動実行しません。`record()` / `scope()` と既存のレコード用 Rules は残りますが、
+`publish()` はそのパスを更新しません。新しい Rules は旧 Version metadata の読み取り許可を生成しません。

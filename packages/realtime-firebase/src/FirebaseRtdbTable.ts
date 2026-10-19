@@ -29,9 +29,9 @@ export class FirebaseRtdbTable<
     return `/${segments.join("/")}`;
   }
 
-  /** Version metadata follows the same RLS scope as the record collection. */
-  public versionPath(principal: FirebaseRtdbPrincipalValues<P>): string {
-    return `/__gasboost/tableVersions${this.scope(principal)}`;
+  /** Table-wide notification path; principal is retained for API compatibility. */
+  public versionPath(_principal: FirebaseRtdbPrincipalValues<P>): string {
+    return `/syncVersions/${this.tableLayout.tableName()}`;
   }
 
   public scope(principal: FirebaseRtdbPrincipalValues<P>): string {

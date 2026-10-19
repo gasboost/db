@@ -31,6 +31,18 @@ const deals = {
 } as const;
 
 describe("FirebaseRtdb", () => {
+  it.each(["__gasboost", "syncVersions"])(
+    "rejects reserved metadata table name %s",
+    (name) => {
+      expect(() =>
+        new FirebaseRtdb({
+          tables: [{ ...deals, name }],
+          principal: {},
+        }),
+      ).toThrow(`Table name '${name}' is reserved for RTDB metadata.`);
+    },
+  );
+
   it("table accessorを生成する", () => {
     const security = new RowLevelSecurity({
       table: deals,

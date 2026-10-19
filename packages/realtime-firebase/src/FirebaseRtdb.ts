@@ -1,11 +1,9 @@
-import type { TableRecord, TableChange } from "@gasboost/table";
+import type { TableChange } from "@gasboost/table";
 import type { VersionStore } from "./VersionStore";
 import type { RtdbTransport } from "./FirebaseRtdbRestTransport";
 import type {
   FirebaseRtdbRelationResolver,
   FirebaseRtdbRecordQuery,
-  FirebaseRtdbRecordQueryRequest,
-  FirebaseRtdbRecordResolutionContext,
 } from "./FirebaseRtdbTypes";
 import type { RowLevelSecurity } from "@gasboost/rls";
 import { FirebaseRtdbLayout } from "./FirebaseRtdbLayout";
@@ -112,140 +110,18 @@ export class FirebaseRtdb<
   /** Publish once per logical commit. Retry the same changes or perform a full resync on error. */
   public publish(changes: readonly TableChange<T[number]>[]): void {
     if (changes.length === 0) return;
-    if (!this.versionStore || !this.transport)
-      throw new Error("publish() requires versionStore and transport.");
 
-    const queryCache = new Map<
-      string,
-      readonly Readonly<Record<string, unknown>>[]
-    >();
-    const query = (request: FirebaseRtdbRecordQueryRequest) => {
-      const key = JSON.stringify([
-        request.table.name,
-        request.column,
-        request.value,
-      ]);
-      let records = queryCache.get(key);
-      if (records === undefined) {
-        if (!this.query)
-          throw new Error(
-            "Publishing relation partition changes requires a synchronous query resolver.",
-          );
-        records = this.query(request);
-        if (
-          !Array.isArray(records) ||
-          records.some(
-            (record) =>
-              record === null ||
-              typeof record !== "object" ||
-              record[request.column] !== request.value,
-          )
-        ) {
-          throw new Error(
-            "RTDB query must synchronously return all committed records matching the requested equality.",
-          );
-        }
-        queryCache.set(key, records);
-      }
-      return records;
-    };
-    const publishChanges = this.includeDependents(changes, query);
-    const context = (
-      side: "before" | "after",
-    ): FirebaseRtdbRecordResolutionContext => ({
-      resolve: (request) => {
-        const changed = publishChanges.find(
-          (change) =>
-            change.table === request.table.name &&
-            [change.before, change.after].some(
-              (record) => record?.[request.primaryKey] === request.value,
-            ),
-        );
-        if (changed) {
-          const record = changed[side];
-          return record?.[request.primaryKey] === request.value ? record : null;
-        }
-        if (this.resolve) return this.resolve(request);
-        return this.query
-          ? query({
-              table: request.table,
-              column: request.primaryKey,
-              value: request.value,
-            })[0]
-          : undefined;
-      },
-    });
-    // Resolve all paths before allocating versions; validation must not consume versions.
-    const resolved = publishChanges.map((change) => {
-      const table = this.tableRegistry.get(change.table);
-      if (!table)
-        throw new Error(`RTDB table '${change.table}' was not found.`);
-      const before = change.before as Record<string, unknown> | null;
-      const after = change.after as Record<string, unknown> | null;
-      if (before === null && after === null)
-        throw new Error("A change must contain before or after.");
-      for (const record of [before, after]) {
-        if (record && ("__syncVersion" in record || "__deleted" in record))
-          throw new Error(
-            "__syncVersion and __deleted are reserved RTDB fields.",
-          );
-      }
-      return {
-        change,
-        table,
-        beforePath:
-          before === null
-            ? null
-            : table.record(
-                change.before! as TableRecord<T[number]>,
-                context("before"),
-              ),
-        afterPath:
-          after === null
-            ? null
-            : table.record(
-                change.after! as TableRecord<T[number]>,
-                context("after"),
-              ),
-      };
-    });
-    const versions = new Map<string, number>();
-    for (const { change } of resolved) {
-      if (!versions.has(change.table)) {
-        const version = this.versionStore.next(change.table);
-        if (!Number.isSafeInteger(version) || version <= 0)
-          throw new Error(`Invalid RTDB version for '${change.table}'.`);
-        versions.set(change.table, version);
-      }
+    if (!this.versionStore || !this.transport) {
+      throw new Error("publish() requires versionStore and transport.");
     }
-    const updates: Record<string, unknown> = {};
-    // Old paths first: a new live record at the same path must win over a tombstone.
-    for (const { change, table, beforePath, afterPath } of resolved) {
-      const version = versions.get(change.table)!;
-      if (beforePath !== null && beforePath !== afterPath) {
-        updates[beforePath.slice(1)] = {
-          [table.layout().primaryKey()]:
-            change.before![table.layout().primaryKey()],
-          __deleted: true,
-          __syncVersion: version,
-        };
-        updates[
-          `__gasboost/tableVersions${beforePath.slice(0, beforePath.lastIndexOf("/"))}`
-        ] = version;
-      }
+
+    const tables = new Set(changes.map((change) => change.table));
+    const updates: Record<string, number> = {};
+
+    for (const table of tables) {
+      updates[`syncVersions/${table}`] = this.versionStore.next(table);
     }
-    for (const { change, afterPath } of resolved) {
-      if (afterPath !== null) {
-        const version = versions.get(change.table)!;
-        updates[afterPath.slice(1)] = {
-          ...change.after,
-          __syncVersion: version,
-        };
-        updates[
-          `__gasboost/tableVersions${afterPath.slice(0, afterPath.lastIndexOf("/"))}`
-        ] = version;
-      }
-    }
+
     this.transport.patch(updates);
   }
 

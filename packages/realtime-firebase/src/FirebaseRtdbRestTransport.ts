@@ -2,6 +2,7 @@ import type {
   FirebaseCustomTokenUtilities,
   FirebaseServiceAccount,
 } from "./FirebaseCustomToken";
+import { normalizePrivateKey } from "./normalizePrivateKey";
 
 export type RtdbUpdates = Readonly<Record<string, unknown>>;
 
@@ -100,7 +101,7 @@ export class FirebaseRtdbRestTransport implements RtdbTransport {
     const signature = encode(
       utilities.computeRsaSha256Signature(
         unsignedToken,
-        serviceAccount.privateKey,
+        normalizePrivateKey(serviceAccount.privateKey),
       ),
     );
     const requestStartedAt = Date.now();

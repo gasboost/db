@@ -1,12 +1,4 @@
-import {
-  column,
-  eq,
-  principal,
-  RowLevelSecurity,
-} from "@gasboost/rls";
-import { defineTable, type TableChange } from "@gasboost/table";
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import {
   FirebaseRtdb,
   FirebaseRtdbRestTransport,
@@ -14,16 +6,6 @@ import {
   type VersionStore,
 } from "../src";
 
-const employees = defineTable({
-  name: "employees",
-  primaryKey: "id",
-  schema: z.object({ id: z.string(), name: z.string(), ownerId: z.string() }),
-});
-const departments = defineTable({
-  name: "departments",
-  primaryKey: "id",
-  schema: z.object({ id: z.string(), title: z.string() }),
-});
 const before = { id: "e1", name: "first", ownerId: "alice" };
 const after = { ...before, name: "last" };
 function versions() {
@@ -36,26 +18,14 @@ function versions() {
     }),
   };
 }
-function setup(secured = false) {
+function setup() {
   const versionStore = versions();
   const transport = { patch: vi.fn() };
-  const security = new RowLevelSecurity({
-    table: employees,
-    select: {
-      using: eq(
-        column(employees, "ownerId"),
-        principal(z.object({ userId: z.string() }), "userId"),
-      ),
-    },
-  });
-  const rtdb = new FirebaseRtdb({
-    tables: [employees, departments],
-    principal: { userId: "auth.uid" },
-    rowLevelSecurity: secured ? [security] : [],
-    versionStore,
+  return {
+    rtdb: new FirebaseRtdb({ versionStore, transport }),
     transport,
-  });
-  return { rtdb, transport, versionStore };
+    versionStore,
+  };
 }
 
 describe("version stores", () => {
@@ -90,10 +60,10 @@ describe("version stores", () => {
 
 describe("FirebaseRtdb.publish", () => {
   it.each([
-    { table: "employees" as const, before: null, after },
-    { table: "employees" as const, before, after },
-    { table: "employees" as const, before, after: null },
-  ])("publishes only the table version for a single CRUD change: %j", (change) => {
+    { table: "employees", before: null, after },
+    { table: "employees", before, after },
+    { table: "employees", before, after: null },
+  ])("publishes only the table Version for CRUD: %j", (change) => {
     const { rtdb, transport, versionStore } = setup();
     rtdb.publish([change]);
     expect(versionStore.next).toHaveBeenCalledExactlyOnceWith("employees");
@@ -101,28 +71,34 @@ describe("FirebaseRtdb.publish", () => {
       "syncVersions/employees": 1,
     });
   });
+
+  it("does nothing for an empty commit", () => {
+    const { rtdb, transport, versionStore } = setup();
+    rtdb.publish([]);
+    expect(versionStore.next).not.toHaveBeenCalled();
+    expect(transport.patch).not.toHaveBeenCalled();
+  });
+
   it("allocates once for multiple changes in the same table", () => {
     const { rtdb, transport, versionStore } = setup();
-    rtdb.publish([
+    const changes = [
       { table: "employees", before, after },
-      { table: "employees", before: null, after: { ...before, id: "e2" } },
+      { table: "employees", before: null, after: { ...after, id: "e2" } },
       { table: "employees", before: { ...before, id: "e3" }, after: null },
-    ]);
+    ];
+    rtdb.publish(changes);
     expect(versionStore.next).toHaveBeenCalledExactlyOnceWith("employees");
     expect(transport.patch).toHaveBeenCalledExactlyOnceWith({
       "syncVersions/employees": 1,
     });
   });
-  it("publishes different table versions in one multi-location PATCH", () => {
+
+  it("publishes multiple table Versions in one PATCH without table definitions", () => {
     const { rtdb, transport, versionStore } = setup();
     rtdb.publish([
-      { table: "employees", before, after },
-      {
-        table: "departments",
-        before: null,
-        after: { id: "d1", title: "department" },
-      },
-      { table: "employees", before: after, after: null },
+      { table: "employees" },
+      { table: "departments" },
+      { table: "employees" },
     ]);
     expect(versionStore.next.mock.calls).toEqual([
       ["employees"],
@@ -133,114 +109,21 @@ describe("FirebaseRtdb.publish", () => {
       "syncVersions/departments": 1,
     });
   });
-  it("publishes the next version when a table already has a version", () => {
-    const { rtdb, transport, versionStore } = setup();
-    versionStore.next("employees");
-    versionStore.next.mockClear();
-    rtdb.publish([{ table: "employees", before, after }]);
-    expect(versionStore.next).toHaveBeenCalledExactlyOnceWith("employees");
-    expect(transport.patch).toHaveBeenCalledExactlyOnceWith({
-      "syncVersions/employees": 2,
-    });
-  });
-  it("does nothing for an empty commit (even without transport configuration)", () => {
-    const { rtdb, transport, versionStore } = setup();
-    rtdb.publish([]);
-    expect(transport.patch).not.toHaveBeenCalled();
-    expect(versionStore.next).not.toHaveBeenCalled();
-    new FirebaseRtdb({ tables: [employees], principal: {} }).publish([]);
-  });
-  it.each(["both", "versionStore", "transport"])(
-    "requires publish dependencies when missing %s",
-    (missing) => {
-      const rtdb = new FirebaseRtdb({
-        tables: [employees],
-        principal: {},
-        versionStore: missing === "transport" ? versions() : undefined,
-        transport: missing === "versionStore" ? { patch: vi.fn() } : undefined,
-      });
-      expect(() => rtdb.publish([{ table: "employees", before, after }])).toThrow(
-        "publish() requires versionStore and transport.",
-      );
-    },
-  );
-  it("does not mutate changes or overload domain version columns", () => {
+
+  it("does not mutate frozen changes", () => {
     const { rtdb } = setup();
     const change = Object.freeze({
-      table: "employees" as const,
+      table: "employees",
       before: Object.freeze(before),
       after: Object.freeze(after),
     });
-    rtdb.publish([change]);
+    rtdb.publish(Object.freeze([change]));
     expect(change.after).toEqual(after);
-    expect(change.after).not.toHaveProperty("__syncVersion");
   });
-  it("notifies the table without publishing RLS partition projections", () => {
-    const { rtdb, transport } = setup(true);
-    rtdb.publish([
-      { table: "employees", before, after: { ...after, ownerId: "bob" } },
-    ]);
-    expect(transport.patch).toHaveBeenCalledExactlyOnceWith({
-      "syncVersions/employees": 1,
-    });
-  });
-  it.each([false, true])(
-    "aligns publish, versionPath and readable notification rules (RLS=%s)",
-    (secured) => {
-      const { rtdb, transport } = setup(secured);
-      const table = rtdb.table("employees");
-      const path = table.versionPath({ userId: "alice" });
-      expect(path).toBe("/syncVersions/employees");
-      expect(table.versionPath({ userId: "bob" })).toBe(path);
-      rtdb.publish([{ table: "employees", before, after }]);
-      expect(transport.patch).toHaveBeenCalledExactlyOnceWith({
-        [path.slice(1)]: 1,
-      });
-      const rules = rtdb.rules().rules;
-      const notification = path
-        .slice(1)
-        .split("/")
-        .reduce((node, segment) => node[segment], rules as any);
-      expect(notification).toEqual({ ".read": "auth != null" });
-      expect(rules.syncVersions).toEqual({
-        ".write": false,
-        employees: { ".read": "auth != null" },
-        departments: { ".read": "auth != null" },
-      });
-      expect(rules).not.toHaveProperty("__gasboost");
-      expect(rules[".read"]).toBeUndefined();
-      expect(rules[".write"]).toBeUndefined();
-    },
-  );
-  it("preserves record RLS while allowing authenticated table notifications", () => {
-    const { rtdb } = setup(true);
-    const rules = rtdb.rules().rules as any;
-    const scope = rules.employees.__rls.ownerId.$scope0;
-    expect(scope[".read"]).toBe(
-      "auth != null && ($scope0 === (auth.uid + ''))",
-    );
-    expect(rules.employees[".read"]).toBeUndefined();
-    expect(rules.syncVersions.employees[".read"]).toBe("auth != null");
-  });
-  it("provides notifications even when record select permission is absent", () => {
-    const rtdb = new FirebaseRtdb({
-      tables: [employees],
-      principal: {},
-      rowLevelSecurity: [new RowLevelSecurity({ table: employees })],
-    });
-    expect(rtdb.table("employees").versionPath({})).toBe(
-      "/syncVersions/employees",
-    );
-    const rules = rtdb.rules().rules as any;
-    expect(rules.employees[".read"]).toBe(false);
-    expect(rules.syncVersions.employees[".read"]).toBe("auth != null");
-    expect(rules.syncVersions[".write"]).toBe(false);
-  });
-  it("propagates PATCH failure and publishes the next version on retry", () => {
+
+  it("propagates PATCH failure and publishes the next Version on retry", () => {
     const { rtdb, transport } = setup();
-    const changes: TableChange<typeof employees>[] = [
-      { table: "employees", before, after },
-    ];
+    const changes = [{ table: "employees", before, after }];
     transport.patch.mockImplementationOnce(() => {
       throw new Error("offline");
     });
@@ -250,23 +133,28 @@ describe("FirebaseRtdb.publish", () => {
       "syncVersions/employees": 2,
     });
   });
-  it("propagates version persistence failure without sending PATCH", () => {
+
+  it("propagates VersionStore failure without sending PATCH", () => {
     const transport = { patch: vi.fn() };
     const versionStore: VersionStore = {
       next: () => {
         throw new Error("properties failed");
       },
     };
-    const rtdb = new FirebaseRtdb({
-      tables: [employees],
-      principal: {},
-      transport,
-      versionStore,
-    });
-    expect(() => rtdb.publish([{ table: "employees", before, after }])).toThrow(
-      "properties failed",
-    );
+    const rtdb = new FirebaseRtdb({ transport, versionStore });
+    expect(() => rtdb.publish([{ table: "employees" }])).toThrow("properties failed");
     expect(transport.patch).not.toHaveBeenCalled();
+  });
+
+  it("allows only authenticated notification reads and denies all client writes", () => {
+    const { rtdb } = setup();
+    expect(rtdb.rules()).toEqual({
+      rules: {
+        ".read": false,
+        ".write": false,
+        syncVersions: { ".read": "auth != null" },
+      },
+    });
   });
 });
 

@@ -1,7 +1,7 @@
 {
   "name": "@gasboost/realtime-firebase",
-  "version": "0.7.0",
-  "description": "Compile @gasboost/rls policies into Firebase Realtime Database Security Rules",
+  "version": "0.8.0",
+  "description": "Table Version notifications for Firebase Realtime Database and GAS Custom Tokens",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gasboost/db.git",
@@ -12,11 +12,8 @@
   "keywords": [
     "firebase",
     "firebase-realtime-database",
-    "realtime-database",
-    "security-rules",
-    "rls",
-    "row-level-security",
-    "authorization",
+    "google-apps-script",
+    "version-notifications",
     "typescript"
   ],
   "type": "commonjs",
@@ -27,16 +24,17 @@
       "types": "./dist/index.d.ts",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "require": "./dist/client.js",
+      "default": "./dist/client.js"
     }
   },
   "files": [
     "dist",
     "README.md"
   ],
-  "dependencies": {
-    "@gasboost/rls": "workspace:*",
-    "@gasboost/table": "workspace:*"
-  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
@@ -51,5 +49,8 @@
     "@types/google-apps-script": "^2.0.12",
     "@types/node": "^26.4.1",
     "zod": "^4.5.4"
+  },
+  "dependencies": {
+    "@gasboost/table": "workspace:*"
   }
 }

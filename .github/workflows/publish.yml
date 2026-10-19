@@ -118,7 +118,7 @@ jobs:
         working-directory: packages/table
         run: pnpm publish --access public --no-git-checks
 
-      # @gasboost/rls は sheetorm / realtime-firebase の workspace dependency。
+      # @gasboost/rls は sheetorm の workspace dependency。
       # 依存先 package の build より先に dist を生成する。
       - name: Typecheck rls
         if: ${{ needs.check-versions.outputs.publish-rls == 'true' }}
@@ -129,7 +129,7 @@ jobs:
         run: pnpm --filter @gasboost/rls test
 
       - name: Build rls
-        if: ${{ needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' || needs.check-versions.outputs.publish-realtime-firebase == 'true' }}
+        if: ${{ needs.check-versions.outputs.publish-rls == 'true' || needs.check-versions.outputs.publish-sheetorm == 'true' }}
         run: pnpm --filter @gasboost/rls build
 
       - name: Verify rls package contents

@@ -27,9 +27,6 @@ importers:
 
   packages/realtime-firebase:
     dependencies:
-      '@gasboost/rls':
-        specifier: workspace:*
-        version: link:../rls
       '@gasboost/table':
         specifier: workspace:*
         version: link:../table

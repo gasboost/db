@@ -1,1293 +1,233 @@
 # @gasboost/realtime-firebase
 
-`@gasboost/rls` の Row Level Security 定義から Firebase Realtime Database 向けの認可レイアウト、型安全な runtime path、Firebase Security Rules を生成し、Firebase Authentication 向けの Custom Token generation を提供するパッケージです。
+Google Apps Script（GAS）から Firebase Realtime Database（RTDB）へテーブルのVersion変更を通知するパッケージです。
+FrontendはFirebase公式SDKで通知を購読し、TanStack Queryなどのキャッシュを無効化してGAS RPCから正本を再取得します。
+レコード本体はRTDBへ複製しません。
 
-## 概要
-
-0.7.0 から `publish(changes)` は、変更されたテーブルの `/syncVersions/{tableName}` に数値の Version だけを通知します。
-Frontend は通知を受けて TanStack Query のキャッシュを無効化し、GAS RPC から正本を再取得します。
-レコード本体は RTDB へ複製しません。下記の RLS layout・`record()`・`scope()` は引き続き利用できる独立した API であり、
-`publish()` の通知先や取得方式を表すものではありません。
-
-`@gasboost/realtime-firebase` は、Gasboost の他のデータ層と同じ Row Level Security 定義を利用します。
-
-```text
-@gasboost/rls
-  └─ 論理的な認可モデル
-       ├─ @gasboost/sheetorm
-       │    └─ runtime authorization
-       │
-       └─ @gasboost/realtime-firebase
-            ├─ RTDB authorization layout
-            ├─ 型安全な runtime path
-            └─ Firebase Security Rules
-```
-
-Firebase Realtime Database は巨大な JSON tree としてデータを保持します。
-
-RDB のように、同じ Table の中から Security Rules が許可された Record だけを filter して返すことはできません。
-
-そのため RTDB では、認可境界そのものを物理的な path 構造として表現する必要があります。
-
-`@gasboost/realtime-firebase` は、RLS からその物理レイアウトを決定的に導出します。
-
-## インストール
+## インストールとエントリーポイント
 
 ```bash
-pnpm add @gasboost/realtime-firebase @gasboost/rls @gasboost/table zod
+pnpm add @gasboost/realtime-firebase @gasboost/table zod
 ```
 
-## 基本的な使い方
+- Backend（GAS）: `@gasboost/realtime-firebase`
+- Frontend（Browser）: `@gasboost/realtime-firebase/client`
 
-まず Table と RLS を定義します。
+`/client` は純粋関数 `versionPath(table: TableDefinition): string` のみを公開します。
+GAS globals・サーバー用モジュール・Firebase SDKをruntime importせず、Firebase初期化・購読・状態管理も行いません。
+`TableDefinition` は既存の `@gasboost/table` からtype-only importします。FrontendのFirebase SDKやTanStack Queryは利用側で用意してください。
+
+## Backend / Frontendでテーブル定義を共有する
 
 ```ts
-import { column, eq, principal, RowLevelSecurity } from "@gasboost/rls";
-import { FirebaseRtdb } from "@gasboost/realtime-firebase";
+// shared/tables.ts（Consumer側の共有モジュール）
 import { defineTable } from "@gasboost/table";
 import { z } from "zod";
 
-const principalSchema = z.object({
-  userId: z.string(),
-});
-
-const dealSchema = z.object({
-  id: z.string(),
-  ownerId: z.string(),
-  title: z.string(),
-});
-
-const deals = defineTable({
-  name: "deals",
-  schema: dealSchema,
-  primaryKey: "id",
-});
-
-const dealSecurity = new RowLevelSecurity({
-  table: deals,
-
-  select: {
-    using: eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-  },
-
-  insert: {
-    check: eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-  },
-
-  update: {
-    using: eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-    check: eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-  },
-
-  delete: {
-    using: eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-  },
-});
-```
-
-この定義から RTDB 定義を生成します。
-
-```ts
-export const rtdb = new FirebaseRtdb({
-  tables: [deals] as const,
-  rowLevelSecurity: [dealSecurity],
-
-  principal: {
-    userId: "auth.uid",
-  },
-});
-```
-
-RLS で参照している Principal key は `rowLevelSecurity` から型推論されます。
-
-そのため、例えば RLS が `principal(principalSchema, "userId")` を参照している場合、`principal` mapping の `userId` は必須です。
-
-この `rtdb` は、runtime path と Security Rules の両方で同じ定義として利用されます。
-
-## Runtime path
-
-Table 名は型として保持されます。
-
-```ts
-rtdb.table("deals");
-```
-
-存在しない Table 名にはアクセスできません。
-
-### Record path
-
-```ts
-const deal = {
-  id: "deal-1",
-  ownerId: "user-1",
-  title: "Example",
-};
-
-const path = rtdb.table("deals").record(deal);
-```
-
-生成される path:
-
-```text
-/deals/__rls/ownerId/user-1/deal-1
-```
-
-生成した path は Firebase 公式 SDK にそのまま渡します。
-
-```ts
-import { ref, set } from "firebase/database";
-
-await set(ref(database, rtdb.table("deals").record(deal)), deal);
-```
-
-`@gasboost/realtime-firebase` は Firebase SDK 自体をラップしません。
-
-## Subscription scope
-
-RLS から、購読可能な認可済み subtree も生成できます。
-
-```ts
-const scope = rtdb.table("deals").scope({
-  userId: "user-1",
-});
-```
-
-生成される path:
-
-```text
-/deals/__rls/ownerId/user-1
-```
-
-Firebase SDK では、その subtree を直接購読できます。
-
-```ts
-import { onValue, ref } from "firebase/database";
-
-onValue(
-  ref(
-    database,
-    rtdb.table("deals").scope({
-      userId: "user-1",
-    }),
-  ),
-  (snapshot) => {
-    console.log(snapshot.val());
-  },
-);
-```
-
-利用側は RTDB の物理 path 構造を知る必要がありません。
-
-## Authorization layout
-
-例えば次の RLS があるとします。
-
-```ts
-eq(column(deals, "ownerId"), principal(principalSchema, "userId"));
-```
-
-この認可条件から、例えば次のような RTDB layout が生成されます。
-
-```text
-/deals
-  /__rls
-    /ownerId
-      /user-1
-        /deal-1
-```
-
-この path は application domain API ではありません。
-
-Firebase 内部で認可境界を表現するための物理データ配置です。
-
-重視するのは path の見た目ではなく、以下です。
-
-- RLS から決定的に導出できる
-- Firebase Security Rules で安全に強制できる
-- frontend / backend で同じ layout を利用できる
-- write / subscribe / Rules が同じ定義を参照する
-- 利用側が RTDB path を手書きしない
-
-## 複数の認可境界
-
-`and()` に複数の条件が含まれる場合は、複数の partition を生成できます。
-
-```ts
-and(
-  eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-  eq(column(deals, "storeId"), principal(principalSchema, "storeId")),
-);
-```
-
-例えば次のような構造になります。
-
-```text
-/deals
-  /__rls
-    /ownerId
-      /user-1
-        /storeId
-          /store-1
-            /deal-1
-```
-
-runtime では同じ定義から scope を取得します。
-
-```ts
-rtdb.table("deals").scope({
-  userId: "user-1",
-  storeId: "store-1",
-});
-```
-
-## Literal による partition
-
-固定値との比較も layout に利用できます。
-
-```ts
-and(
-  eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-  eq(column(deals, "status"), literal("open")),
-);
-```
-
-生成される layout の例:
-
-```text
-/deals/__rls/ownerId/user-1/status/open/deal-1
-```
-
-Record の `status` が `"open"` でない場合は、path generation の時点で拒否されます。
-
-## Firebase Security Rules
-
-同じ RTDB 定義から、Firebase Realtime Database Security Rules を生成できます。
-
-```ts
-const rules = rtdb.rules();
-```
-
-返り値は JSON-compatible object です。
-
-```ts
-const json = JSON.stringify(rtdb.rules(), null, 2);
-```
-
-そのまま `database.rules.json` として出力できます。
-
-将来的には `@gasboost/cli` がこの compiler API を利用して、例えば次のような command を提供します。
-
-```bash
-gasboost rtdb rules
-```
-
-`@gasboost/realtime-firebase` 自体は CLI や filesystem I/O を担当しません。
-
----
-
-## Firebase Custom Token
-
-`@gasboost/realtime-firebase` は、Firebase Authentication の Custom Token を生成できます。
-
-Firebase Admin SDK や JWT library は利用せず、Google Apps Script 標準の `Utilities` を利用して RS256 署名を行います。
-
-```ts
-import { FirebaseCustomToken } from "@gasboost/realtime-firebase";
-
-const token = FirebaseCustomToken.generate({
-  uid: "user-1",
-
-  claims: {
-    storeId: "store-1",
-  },
-
-  serviceAccount: {
-    email: "firebase-adminsdk@example.iam.gserviceaccount.com",
-    privateKey,
-  },
-
-  utilities: Utilities,
-});
-```
-
-生成される token は Firebase Authentication の Custom Token として利用できます。
-
-```text
-header.payload.signature
-```
-
-JWT header:
-
-```json
-{
-  "alg": "RS256",
-  "typ": "JWT"
-}
-```
-
-payload には Firebase Custom Token に必要な以下の値が含まれます。
-
-```text
-iss
-sub
-aud
-iat
-exp
-uid
-claims
-```
-
-`iss` / `sub` には Service Account の email が設定されます。
-
-`iat` は token 発行時刻、`exp` はその 1 時間後です。
-
-### Custom claims
-
-Firebase Authentication の custom claims は `claims` として指定します。
-
-```ts
-const token = FirebaseCustomToken.generate({
-  uid: "user-1",
-
-  claims: {
-    storeId: "store-1",
-    role: "manager",
-  },
-
-  serviceAccount: {
-    email: serviceAccountEmail,
-    privateKey,
-  },
-
-  utilities: Utilities,
-});
-```
-
-例えば RTDB の Principal mapping で、
-
-```ts
-principal: {
-  userId: "auth.uid",
-  storeId: "auth.token.storeId",
-},
-```
-
-と定義した場合、
-
-```ts
-claims: {
-  storeId: "store-1",
-}
-```
-
-として発行した値を、
-
-```text
-auth.token.storeId
-```
-
-として Firebase Security Rules から参照できます。
-
-このため、
-
-```text
-Firebase Custom Token
-        ↓
-Firebase Authentication
-        ↓
-auth.uid / auth.token.*
-        ↓
-Firebase Security Rules
-        ↓
-RLS
-```
-
-という形で、Gasboost の Principal と Firebase Authentication を接続できます。
-
-### UID
-
-`uid` は Firebase Authentication 上の User ID です。
-
-```ts
-FirebaseCustomToken.generate({
-  uid: "user-1",
-  // ...
-});
-```
-
-`uid` は 1〜128 文字である必要があります。
-
-空文字や 128 文字を超える値は拒否されます。
-
-### Reserved claims
-
-Firebase / OpenID Connect が予約している claim は custom claims として利用できません。
-
-例えば以下は拒否されます。
-
-```ts
-claims: {
-  sub: "value",
-}
-```
-
-予約済み claim には以下があります。
-
-```text
-acr
-amr
-at_hash
-aud
-auth_time
-azp
-cnf
-c_hash
-exp
-iat
-iss
-jti
-nbf
-nonce
-sub
-firebase
-user_id
-```
-
-### Service Account
-
-Custom Token の署名には Firebase project に紐付いた Service Account の認証情報を使用します。
-
-```ts
-serviceAccount: {
-  email: serviceAccountEmail,
-  privateKey,
-}
-```
-
-private key は application source code に直接埋め込まず、安全な credential storage から取得してください。
-
-`@gasboost/realtime-firebase` は Service Account credential の保存や Secret Manager integration を担当しません。
-
-### GAS Utilities
-
-署名処理には Google Apps Script 標準の `Utilities` を使用します。
-
-内部では、
-
-```ts
-Utilities.computeRsaSha256Signature(...)
-```
-
-による RSA SHA-256 署名と、
-
-```ts
-Utilities.base64EncodeWebSafe(...)
-```
-
-による base64url encoding を利用します。
-
-そのため Firebase Admin SDK や JWT library は必要ありません。
-
-### Client authentication
-
-生成した Custom Token は frontend へ返し、Firebase 公式 SDK の `signInWithCustomToken()` に渡します。
-
-```ts
-import { getAuth, signInWithCustomToken } from "firebase/auth";
-
-const auth = getAuth();
-
-await signInWithCustomToken(auth, token);
-```
-
-`@gasboost/realtime-firebase` は Firebase Authentication client SDK をラップしません。
-
-### Authentication package integration
-
-`FirebaseCustomToken` は `@gasboost/auth` に依存しません。
-
-```text
-@gasboost/auth
-      ↓
-integration adapter
-      ↓
-@gasboost/realtime-firebase
-      ↓
-Firebase Custom Token
-```
-
-`FirebaseCustomToken` が扱うのは、
-
-```text
-uid
-claims
-Service Account
-GAS Utilities
-```
-
-だけです。
-
-Gasboost Auth の `User` / `Session` や認証 lifecycle は認識しません。
-
-`@gasboost/auth` との接続は integration package の責務です。
-
----
-
-## Principal mapping
-
-RLS の Principal は Firebase Authentication 上の値へ明示的に対応付けます。
-
-```ts
-const rtdb = new FirebaseRtdb({
-  tables,
-  rowLevelSecurity,
-
-  principal: {
-    userId: "auth.uid",
-    storeId: "auth.token.storeId",
-  },
-});
-```
-
-例えば、
-
-```ts
-principal(principalSchema, "userId");
-```
-
-は、
-
-```text
-auth.uid
-```
-
-に変換されます。
-
-同様に、
-
-```ts
-principal(principalSchema, "storeId");
-```
-
-は、
-
-```text
-auth.token.storeId
-```
-
-に変換できます。
-
-### Principal mapping の型推論
-
-`new FirebaseRtdb()` は、`rowLevelSecurity` で参照されている Principal key を型レベルで追跡します。
-
-例えば RLS が次の Principal を参照している場合、
-
-```ts
-const security = new RowLevelSecurity({
-  table: deals,
-  select: {
-    using: eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-  },
-});
-```
-
-`principal` mapping には `userId` が必須になります。
-
-```ts
-new FirebaseRtdb({
-  tables: [deals] as const,
-  rowLevelSecurity: [security],
-
-  principal: {
-    userId: "auth.uid",
-  },
-});
-```
-
-必要な mapping を省略すると TypeScript error になります。
-
-```ts
-new FirebaseRtdb({
-  tables: [deals] as const,
-  rowLevelSecurity: [security],
-
-  principal: {
-    storeId: "auth.token.storeId",
-    // error: userId is required
-  },
-});
-```
-
-複数の Principal key を RLS で利用する場合は、すべての key が必須になります。
-
-```ts
-const security = new RowLevelSecurity({
-  table: deals,
-  select: {
-    using: and(
-      eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-      eq(column(deals, "storeId"), principal(principalSchema, "storeId")),
-    ),
-  },
-});
-
-new FirebaseRtdb({
-  tables: [deals] as const,
-  rowLevelSecurity: [security],
-
-  principal: {
-    userId: "auth.uid",
-    storeId: "auth.token.storeId",
-  },
-});
-```
-
-RLS で必要とされる key 以外の mapping を追加することもできます。
-
-```ts
-new FirebaseRtdb({
-  tables: [deals] as const,
-  rowLevelSecurity: [security],
-
-  principal: {
-    userId: "auth.uid",
-    storeId: "auth.token.storeId",
-    role: "auth.token.role",
-  },
-});
-```
-
-この型チェックは compile time の安全性を提供します。
-
-同時に runtime でも Principal mapping を検証するため、型情報を失った JavaScript、型 assertion、外部入力などから不正な定義が渡された場合も missing mapping を拒否します。
-
-すべての Principal を暗黙に `auth.uid` と扱うことはありません。
-
-## RLS semantics
-
-`@gasboost/rls` の semantics をそのまま維持します。
-
-```text
-RLS definition なし
-→ unrestricted
-
-RLS definition あり
-+ 対象 operation の policy なし
-→ deny
-
-allow()
-→ 明示的 allow
-```
-
-RTDB の write operation では `data` と `newData` を利用して CRUD を判定します。
-
-```text
-select.using
-→ read authorization
-
-insert.check
-→ !data.exists()
-   + newData.exists()
-   + newData に対する check
-
-update.using
-→ data に対する authorization
-
-update.check
-→ newData に対する authorization
-
-delete.using
-→ data に対する authorization
-   + !newData.exists()
-```
-
-さらに生成される Rules では、
-
-- Record の primary key
-- RLS partition の値
-
-が物理 path と一致していることも検証します。
-
-これにより、別の認可 subtree へ Record を不正に配置することを防ぎます。
-
-## Projectability
-
-すべての RLS を、RTDB の単一 subscription subtree に変換できるわけではありません。
-
-`@gasboost/realtime-firebase` は認可 semantics を安全に保持できない場合、明示的に失敗します。
-
-安全でない permissive fallback は行いません。
-
-### Subscription scope に利用可能な式
-
-現在、次の式から subscription scope を生成できます。
-
-- `allow()`
-- `eq()`
-- `and()`
-- `column()`
-- `principal()`
-- `literal()`
-
-例えば、
-
-```ts
-eq(column(deals, "ownerId"), principal(principalSchema, "userId"));
-```
-
-であれば、単一の authorization partition に変換できます。
-
-### `or()`
-
-`or()` 自体は Record 単位の Security Rules では利用できます。
-
-例えば、
-
-```ts
-or(
-  eq(column(deals, "ownerId"), principal(principalSchema, "userId")),
-  eq(column(deals, "status"), literal("public")),
-);
-```
-
-という条件は、1件の Record に対して評価できます。
-
-しかし、
-
-```text
-自分がowner
-OR
-public
-```
-
-という条件は単一の RTDB subtree にはなりません。
-
-複数の認可空間を横断する必要があるため、現在 `select.using` に `or()` が含まれる場合は projectability error とします。
-
-## Relation-aware RLS
-
-子 Table の認可条件が、親 Table の属性によって決まる場合があります。
-
-例えば、次のような2つの Table があるとします。
-
-```ts
-import { defineTable } from "@gasboost/table";
-import { z } from "zod";
-
-const parents = defineTable({
-  name: "parents",
-  schema: z.object({
-    id: z.string(),
-    ownerId: z.string(),
-    name: z.string(),
-  }),
-  primaryKey: "id",
-});
-
-const children = defineTable({
-  name: "children",
-  schema: z.object({
-    id: z.string(),
-    parentId: z.string(),
-    value: z.string(),
-  }),
+export const productsTable = defineTable({
+  name: "products",
+  schema: z.object({ id: z.string(), name: z.string() }),
   primaryKey: "id",
 });
 ```
 
-`children` 自体は `ownerId` を持ちません。
+BackendのSheetTableにも同じ定義を使い（例: `new SheetTable({ ...productsTable, dbId })`）、
+Frontendは共有モジュールの `productsTable` を `versionPath()` に渡します。
+テーブル名を `items` に変更すると、SheetORMの `change.table` とFrontendの通知先も同じ定義に追従します。
 
-所有者は親 Record である `parents.ownerId` によって決まります。
-
-```text
-children.parentId
-        ↓
-parents.id
-        ↓
-parents.ownerId
-        ↓
-principal.userId
-```
-
-このような認可は `exists()` と `outerColumn()` を使って表現できます。
+## Backend: SheetORMのafterCommitから通知する
 
 ```ts
-import {
-  and,
-  column,
-  eq,
-  exists,
-  outerColumn,
-  principal,
-  RowLevelSecurity,
-} from "@gasboost/rls";
-import { z } from "zod";
-
-const principalSchema = z.object({
-  userId: z.string(),
-});
-
-const childSecurity = new RowLevelSecurity({
-  table: children,
-
-  select: {
-    using: exists(
-      parents,
-      and(
-        eq(column(parents, "id"), outerColumn(children, "parentId")),
-        eq(column(parents, "ownerId"), principal(principalSchema, "userId")),
-      ),
-    ),
-  },
-});
-```
-
-`outerColumn(children, "parentId")` は、`exists(parents, ...)` の外側にある現在の child Record の値を表します。
-
-この定義から、`@gasboost/realtime-firebase` は single-hop relation を認可用の RTDB layout へ投影します。
-
-```ts
-const rtdb = new FirebaseRtdb({
-  tables: [parents, children] as const,
-  rowLevelSecurity: [childSecurity],
-
-  principal: {
-    userId: "auth.uid",
-  },
-});
-```
-
-### Record path
-
-relation-aware な Table では、partition に必要な値が child Record 自体には存在しない場合があります。
-
-その場合は、関連 Record を解決する resolver を `record()` に渡します。
-
-```ts
-const child = {
-  id: "child-1",
-  parentId: "parent-1",
-  value: "example",
-};
-
-const path = rtdb.table("children").record(child, {
-  resolve: ({ table, primaryKey, value }) => {
-    if (
-      table.name === "parents" &&
-      primaryKey === "id" &&
-      value === "parent-1"
-    ) {
-      return {
-        id: "parent-1",
-        ownerId: "user-1",
-        name: "Parent",
-      };
-    }
-
-    return null;
-  },
-});
-```
-
-例えば次の path が生成されます。
-
-```text
-/children/__rls/ownerId/user-1/child-1
-```
-
-resolver は storage-agnostic です。
-
-`@gasboost/realtime-firebase` 自身は、SheetORM、Replica、Firebase SDK などから Record を取得しません。
-
-関連 Record の取得方法は利用側が決定します。
-
-```text
-application
-    ↓
-resolver
-    ↓
-SheetORM / repository / cache / other storage
-```
-
-relation-aware policy が必要なのに resolver が指定されていない場合、または関連 Record が見つからない場合は明示的に失敗します。
-
-### Subscription scope
-
-subscription scope は child Record を必要としません。
-
-Principal の値だけから生成できます。
-
-```ts
-const scope = rtdb.table("children").scope({
-  userId: "user-1",
-});
-```
-
-生成される scope:
-
-```text
-/children/__rls/ownerId/user-1
-```
-
-つまり、
-
-```text
-record path
-= child relation を resolver で辿って partition を決定
-
-scope path
-= Principal から同じ partition を決定
-```
-
-となります。
-
-両方とも同じ authorization layout metadata を利用します。
-
-### Canonical Table schema
-
-relation-aware RLS のためだけに、親の認可属性を child Table へ複製する必要はありません。
-
-例えば、次のような schema にする必要はありません。
-
-```ts
-const children = defineTable({
-  name: "children",
-  schema: z.object({
-    id: z.string(),
-    parentId: z.string(),
-
-    // RTDB authorization のためだけの重複 column
-    ownerId: z.string(),
-
-    value: z.string(),
-  }),
-  primaryKey: "id",
-});
-```
-
-application の canonical schema は正規化したまま維持できます。
-
-```text
-Domain / canonical Table schema
-!=
-RTDB authorization layout
-```
-
-Firebase Realtime Database 固有の認可用非正規化は `@gasboost/realtime-firebase` が担当します。
-
-### Projectable pattern
-
-現在 relation-aware subscription scope として投影できるのは、single-hop で一意に解決できる relation です。
-
-基本形は次の通りです。
-
-```ts
-exists(
-  parentTable,
-  and(
-    eq(
-      column(parentTable, parentPrimaryKey),
-      outerColumn(childTable, childForeignKey),
-    ),
-    eq(
-      column(parentTable, partitionColumn),
-      principal(principalSchema, principalKey),
-    ),
-  ),
-);
-```
-
-equality の左右を逆にしても同じ relation として扱われます。
-
-```ts
-eq(
-  outerColumn(childTable, childForeignKey),
-  column(parentTable, parentPrimaryKey),
-);
-```
-
-partition source には Principal だけでなく literal も利用できます。
-
-```ts
-exists(
-  parents,
-  and(
-    eq(column(parents, "id"), outerColumn(children, "parentId")),
-    eq(column(parents, "status"), literal("active")),
-  ),
-);
-```
-
-### Projectability and fail closed
-
-relation を安全かつ一意に RTDB layout へ投影できない場合、`@gasboost/realtime-firebase` は明示的に失敗します。
-
-例えば以下は permissive に fallback しません。
-
-- referenced Table が RTDB に登録されていない
-- `outerColumn()` が現在の child Table を参照していない
-- `column()` が `exists()` の対象 Table を参照していない
-- relation target が parent primary key ではない
-- relation equality を一意に決定できない
-- conflicting partition が存在する
-- relation cycle が発生する
-- multi-hop relation が必要になる
-- relation resolver が指定されていない
-- resolver が関連 Record を解決できない
-
-unsupported な relation を認可条件から無視したり、`true` に変換したりすることはありません。
-
-常に fail closed します。
-
-## Record identity
-
-RTDB の Record path を生成するには primary key が必要です。
-
-`@gasboost/rls` の共通 `TableDefinition` は storage-agnostic なまま維持するため、`@gasboost/realtime-firebase` 側では `primaryKey` を持つ構造型を要求します。
-
-```ts
-const deals = {
-  name: "deals",
-  schema: dealSchema,
-  primaryKey: "id",
-} as const;
-```
-
-SheetORM の `SheetTable` は既に、
-
-```text
-name
-schema
-primaryKey
-```
-
-を持っているため、`@gasboost/sheetorm` へ依存せず構造的に利用できます。
-
-## Package boundary
-
-`@gasboost/realtime-firebase` が直接依存するのは、
-
-```text
-@gasboost/rls
-```
-
-です。
-
-以下には依存しません。
-
-- `@gasboost/sheetorm`
-- `@gasboost/replica`
-- React
-- IndexedDB
-- Dexie
-- Firebase Browser SDK
-- CLI framework
-
-責務は次の範囲に限定します。
-
-```text
-@gasboost/realtime-firebase
-  │
-  ├─ RLS
-  │    ↓
-  │  Authorization layout
-  │    ├─ Record path
-  │    ├─ Subscription scope
-  │    └─ Firebase Security Rules
-  │
-  └─ Firebase Authentication
-       └─ Custom Token generation
-```
-
-Frontend の購読は Firebase 公式 SDK、GAS からの Version 通知は `FirebaseRtdbRestTransport` が担当します。
-
-Firebase Authentication の client-side sign in も Firebase 公式 SDK が担当します。
-
-CLI command、config file、filesystem output は `@gasboost/cli` が担当します。
-
-`@gasboost/auth` との lifecycle integration は別 integration package が担当します。
-
-## Architecture
-
-```text
-FirebaseRtdb
-  │
-  ├─ FirebaseRtdbLayout
-  │    └─ FirebaseRtdbScopeProjector
-  │         └─ FirebaseRtdbBinding
-  │
-  ├─ FirebaseRtdbTable
-  │    └─ FirebaseRtdbPathSegment
-  │
-  └─ FirebaseRtdbRulesCompiler
-       ├─ FirebaseRtdbRulesLocation
-       ├─ FirebaseRtdbPredicateCompiler
-       │    └─ FirebaseRtdbValueCompiler
-       ├─ FirebaseRtdbWriteRuleCompiler
-       └─ FirebaseRtdbInvariantCompiler
-```
-
-各クラスは1つの責務を持ちます。
-
-状態は各オブジェクト内部へ隠蔽し、振る舞いは public method として提供します。
-
-## License
-
-MIT
-
-## テーブル Version の通知（0.7.0〜）
-
-`new FirebaseRtdb(config)` に初期化 API を統一しました。旧 `FirebaseRtdb.generate(config)` と
-`rtdb.employees` 形式の動的プロパティは廃止し、`rtdb.table("employees")` を使用します。
-
-`publish(changes)` は同期メソッドです。変更されたテーブルごとに 1 回だけ Version を採番し、
-`syncVersions/{tableName}` の数値を 1 回の root multi-location PATCH でまとめて更新します。
-Create / Update / Delete はすべて同じ通知です。同一テーブルの変更が複数件あっても採番は 1 回です。
-空配列では採番も PATCH も行わず、採番のための RTDB GET も行いません。
-既存の `afterCommit: changes => rtdb.publish(changes)` はそのまま使用できます。
-
-```ts
-import { z } from "zod";
-import { defineTable } from "@gasboost/table";
-import { SheetDB, SheetGateway, SheetTable } from "@gasboost/sheetorm";
+import { SheetDB, SheetGateway } from "@gasboost/sheetorm";
 import {
   FirebaseRtdb,
   FirebaseRtdbRestTransport,
   PropertiesVersionStore,
 } from "@gasboost/realtime-firebase";
 
-const employees = defineTable({
-  name: "employees",
-  primaryKey: "id",
-  schema: z.object({ id: z.string(), name: z.string() }),
-});
-const tables = [new SheetTable({ ...employees, dbId: "SPREADSHEET_ID" })] as const;
+const properties = PropertiesService.getScriptProperties();
 const rtdb = new FirebaseRtdb({
-  tables,
-  rowLevelSecurity: [],
-  principal: { userId: "auth.uid" },
-  versionStore: new PropertiesVersionStore(PropertiesService.getScriptProperties()),
+  versionStore: new PropertiesVersionStore(properties),
   transport: new FirebaseRtdbRestTransport({
     databaseUrl: "https://YOUR_DATABASE_URL",
     urlFetchApp: UrlFetchApp,
     cacheService: CacheService,
-    credentialsProvider: () => {
-      const properties = PropertiesService.getScriptProperties();
-      return {
-        email: properties.getProperty("FIREBASE_SERVICE_ACCOUNT_EMAIL")!,
-        privateKey: properties.getProperty("FIREBASE_PRIVATE_KEY")!,
-      };
-    },
+    credentialsProvider: () => ({
+      email: properties.getProperty("FIREBASE_SERVICE_ACCOUNT_EMAIL")!,
+      privateKey: properties.getProperty("FIREBASE_PRIVATE_KEY")!,
+    }),
   }),
 });
+
+// tablesは利用側で定義したSheetTableの配列。
 const db = new SheetDB({
   tables,
   gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
-  afterCommit: changes => rtdb.publish(changes),
+  afterCommit: (changes) => rtdb.publish(changes),
 });
-
-db.table("employees").create([{ id: "e1", name: "田中" }]);
-db.table("employees").update([{ id: "e1", name: "田中太郎" }]);
-db.table("employees").delete(["e1"]);
 ```
 
-`FirebaseRtdbRestTransport` は `credentialsProvider` が返す既存の `FirebaseServiceAccount` 型
-（`email` / PEM 形式の `privateKey`）から RS256 JWT assertion を署名し、Google OAuth token endpoint で
-Access Token を内部取得します。Consumer に `getAccessToken` の実装は不要です。
-旧 `getAccessToken` 設定は `credentialsProvider` / `cacheService` に置き換えてください。
+`FirebaseRtdb` のコンストラクタには `versionStore` と `transport` のみを渡します。
+テーブル定義・Principal・RLS・resolver/queryは不要です。データの認可はSheetORM / GAS RPC側で行います。
+既存のSheetORM `afterCommit` から渡される変更配列はそのまま利用できます。
 
-`CacheService.getScriptCache()` に有効な token があれば、constructor 初期化時も PATCH 時も
-credential storage を読みません。cache miss / expiration 時だけ provider を呼びます。
-キャッシュは database URL ごとにパッケージ専用 prefix で分離し、同じ script / database URL の
-transport は同じ Service Account を使う前提です。TTL は OAuth response の `expires_in` から
-通信時間と 60 秒の余裕を差し引き、CacheService の上限（6 時間）以内にします。
-TTL が正にならない短命 token はそのリクエストのみで使い、キャッシュしません。
-credential の保存・取得先（PropertiesService / Secret Manager 等）は Consumer が管理します。
-
-署名には GAS 標準の `Utilities` を使います。GAS 外でのテストでは `utilities` も注入できます。
-HTTP / cache は構造的な部分型なので、`urlFetchApp` / `cacheService` に fake を渡せます。
-認証用 scope は `https://www.googleapis.com/auth/firebase.database` と
-`https://www.googleapis.com/auth/userinfo.email` です。
-Service Account には対象 Firebase へのアクセス権限・IAM 設定が必要です。
-OAuth flow の詳細は [Google の仕様](https://developers.google.com/identity/protocols/oauth2/service-account) と
-[Firebase REST 認証](https://firebase.google.com/docs/database/rest/auth) を参照してください。
-`FirebaseRtdbRestTransport` は注入した `UrlFetchApp.fetch` を使い、HTTP エラー・通信例外を伝播させます。
-任意の同期 `RtdbTransport`（`patch(updates): void`）や `VersionStore`（`next(tableName): number`）も注入できます。
-パス・Rules 生成だけならどちらの設定も不要です。
-
-### 通知先と Frontend の再取得
-
-| データ | 保存先・値 |
-| --- | --- |
-| テーブル Version | `/syncVersions/{tableName}` に数値 |
-
-`table(name).versionPath(principal)` は `/syncVersions/{tableName}` を返します。
-互換性のため引数は維持しますが、Principal の値や RLS partition によって通知先は変わりません。
-生成 Rules は、定義された各テーブルの通知を Firebase Authentication の認証済みユーザー全員に許可します
-（`.read: "auth != null"`）。未認証の読み取り、`syncVersions` 全体の一括読み取り、クライアントの書き込みは許可しません。
-Version はテーブル全体の変更を表すため、自分の取得結果に影響しない変更でも通知されます。
-レコードへのアクセス権限は GAS RPC / SheetORM 側の RLS で判定してください。
-
-Frontend では秘密鍵を含めず、共有のテーブル定義からパスを取得し、Firebase SDK で購読します。
-例えば TanStack Query のキーが `["employees", ...]` なら、次のように無効化できます。
+### publishの契約
 
 ```ts
-import type { QueryClient } from "@tanstack/react-query";
-import { onValue, ref, type Database } from "firebase/database";
-
-// rtdb は Frontend 用の FirebaseRtdb（tables / principal のみで構築可能）。
-function subscribeEmployees(
-  database: Database,
-  queryClient: QueryClient,
-  userId: string,
-) {
-  return onValue(
-    ref(database, rtdb.table("employees").versionPath({ userId })),
-    () => {
-      void queryClient.invalidateQueries({ queryKey: ["employees"] });
-    },
-  );
-}
-// 認証完了後に購読し、画面の破棄時には返された unsubscribe を呼びます。
+publish(changes: readonly { table: string }[]): void
 ```
 
-初回・再接続時も現在値のイベントを使って再取得します。Query の取得関数には GAS RPC を設定してください。
-`publish()` はレコード本体、削除 tombstone、`__syncVersion`、RLS partition 別 projection を送信しません。
-入力の `TableChange` は変更せず、`query` / `resolve` を呼び出したり、未変更の依存レコードを列挙したりもしません。
-`syncVersions` と従来の `__gasboost` は予約テーブル名です。
+`publish()` は同期メソッドです。変更配列から重複を除いたテーブル名ごとに1回だけVersionを採番し、
+1回のroot multi-location PATCHで数値を通知します。
 
-### Properties・失敗時の扱い
+```ts
+rtdb.publish([
+  { table: "employees" },
+  { table: "employees" },
+  { table: "departments" },
+]);
+// 初回: { "syncVersions/employees": 1, "syncVersions/departments": 1 }
+```
 
-`PropertiesVersionStore` は `rtdb:version:<tableName>` を読み、初期値 0 から +1 して保存します。
-VersionStore はロックを実装しません。同じテーブルを公開する全 writer は同じ Properties と既存のテーブルロックを共有してください。
-SheetORM の `afterCommit` 経由ではシート更新から publish 完了までロックが保持されます。
-直接 `publish()` を呼ぶ場合も、呼び出し元で同じロック境界を確保します。
+- Create / Update / Deleteの種類に依存せず、テーブル名だけを使います。
+- 空配列は何もせず、VersionStore / Transportも呼びません。
+- 入力配列・レコードは変更しません。レコード本体や削除情報は送信しません。
+- 未変更の依存テーブルを列挙しません。Cascade削除などで実際の子の変更も配列に含まれる場合は親子双方を通知します。
+- 親の値に依存するQueryは、親テーブルの通知でも無効化するようFrontendを設定してください。
 
-VersionStore / Transport の例外は呼び出し元へ伝播します。採番後の PATCH 失敗では欠番を許容します。
-失敗したテーブルの通知を再送するには同じ変更配列で `publish()` を再実行してください。再送時は新しい Version を採番します。
-通知を受けた Frontend は差分を適用せず正本を再取得するため、Version の連続性は不要です。
-失敗した通知は自動再送されず、該当テーブルの次の成功通知または明示的な再取得までキャッシュが古いままになる場合があります。
-Properties と RTDB をまたぐ分散 Transaction や自動 outbox は提供しません。
-`seed / migrate` は Hook 対象外です。必要なら変更配列を別途 publish して再取得を通知してください。
+### RTDBパスの正規化と衝突
 
-### 関連テーブルの変更
+Backendの `publish()` とFrontendの `versionPath()` は同じBrowser-safeな関数で、テーブル名から
+制御文字（U+0000〜U+001F、U+007F〜U+009F）と `.` / `#` / `$` / `[` / `]` / `/` を取り除きます。
+例えば `sales.2026` は `/syncVersions/sales2026`、有効な `products` は `/syncVersions/products` になります。
+SheetORM / `@gasboost/table` の論理テーブル名は変更せず、VersionStoreの採番キーも元の名前を使用します。
 
-親の属性変更だけでは、未変更の子テーブルの Version は更新しません。
-Cascade 削除などで子の実際の変更も SheetORM の変更配列に含まれる場合は、親子の Version を同じ PATCH で通知します。
-親の値に依存する Query は、親テーブルの通知でも無効化するよう Frontend 側で購読を設定してください。
-`query` / `resolve` は通知に不要で、既存の `record()` / `scope()` と RLS コンパイラの API は維持します。
+正規化後が空の場合は両APIが例外を投げます。Backendは同一publish内、および同一 `FirebaseRtdb` インスタンスで
+既に検証した通知先と、異なる論理テーブル名が衝突する場合も例外を投げます。
+例: `sales.2026` と `sales2026` を同じ通知先として黙って共有せず、採番・PATCHの前に停止します。
+同じ論理名の重複は衝突とせず、従来どおり1回だけ採番します。
 
-### 0.6.x からの移行
+**正規化は情報を失うため、共有する全テーブル定義で正規化後の名前が一意になるようにしてください。**
+Frontendのパス関数は純粋関数であり、他の定義を知りません。Backendの衝突履歴も永続化しないため、
+別インスタンスやGASの別実行にまたがって、別々にしか登場しないテーブル間の衝突は検出できません。
+衝突した場合は共有定義の論理名を一意な通知先になるように見直してください。自動で別名やsuffixは割り当てません。
 
-0.7.0 は publish protocol の互換性を変更するリリースです。
+### VersionStoreと失敗時の扱い
 
-- Backend と Frontend のパッケージを更新し、新しい `rtdb.rules()` を Firebase へ適用します。
-- `versionPath(principal)` は新通知先を返します。旧 `__gasboost/tableVersions/...` の購読を置き換えます。
-- RTDB レコードを `orderByChild("__syncVersion")` で差分取得する処理を、Version 通知に基づく GAS RPC の再取得へ置き換えます。
-- レコード・tombstone の複製や依存レコードの自動移動を前提とした処理を更新します。
+`PropertiesVersionStore` は `rtdb:version:<tableName>` をScript Propertiesに保存します。
+初期値0から+1し、不正な保存値や安全な整数の上限に達した場合は例外を投げます。
+任意の同期 `VersionStore`（`next(tableName): number`）と `RtdbTransport`（`patch(updates): void`）も注入できます。
 
-既存 RTDB データの削除・移行は自動実行しません。`record()` / `scope()` と既存のレコード用 Rules は残りますが、
-`publish()` はそのパスを更新しません。新しい Rules は旧 Version metadata の読み取り許可を生成しません。
+VersionStore自体はロックを実装しません。同じテーブルのwriterは同じPropertiesと既存のテーブルロックを共有してください。
+SheetORMの `afterCommit` ではシート更新からpublish完了までロックが保持されます。
+直接publishを呼ぶ場合も、呼び出し元で同じロック境界を確保します。
+
+採番・PATCHの例外は呼び出し元へ伝播します。採番後のPATCH失敗では欠番を許容します。
+同じ変更配列で再実行すれば新しいVersionで通知できます。Frontendは正本を再取得するため、Versionの連続性は不要です。
+自動再送や分散Transactionは提供しません。通知が失敗すると、次の成功通知または明示的な再取得までキャッシュが古いままになる場合があります。
+SheetORMのafterCommit失敗時もシートの更新はコミット済みです。
+`seed / migrate` はHook対象外のため、必要なら変更テーブルを別途publishして再取得を通知してください。
+
+### REST transportの認証
+
+`FirebaseRtdbRestTransport` は `credentialsProvider` が返す `FirebaseServiceAccount`（`email` / PEM形式の `privateKey`）で
+RS256 OAuth JWTを署名し、アクセストークンを内部取得します。秘密鍵のリテラルの `\n` は署名直前に実改行へ正規化します。
+既に実改行を含む秘密鍵はそのまま利用できます。秘密鍵をFrontendに渡さないでください。
+
+`CacheService.getScriptCache()` に有効なtokenがあればcredential storageは読みません。
+constructorでは認証せず、cache miss / expiration時にproviderを呼びます。
+キャッシュはdatabase URLごとに分離され、同じscript / database URLのtransportは同じService Accountを使用する前提です。
+TTLは `expires_in` から通信時間と60秒の余裕を差し引き、CacheServiceの上限（6時間）以内にします。
+短命tokenでTTLが正にならない場合はキャッシュしません。
+
+署名にはGAS標準の `Utilities` を使用します。GAS外のテストでは `utilities` も注入できます。
+`urlFetchApp` / `cacheService` は構造的な部分型なのでfakeを利用できます。
+HTTPエラー・通信例外は呼び出し元へ伝播します。
+credentialの保存・取得先、対象FirebaseへのService Accountのアクセス権限は利用側で管理してください。
+OAuthのscopeは `https://www.googleapis.com/auth/firebase.database` と
+`https://www.googleapis.com/auth/userinfo.email` です。
+
+## Rules: 認証済みClientの通知readのみを許可
+
+`rtdb.rules()` は次のJSONを返します。Firebaseへ適用してから購読してください。
+
+```json
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "syncVersions": { ".read": "auth != null" }
+  }
+}
+```
+
+認証済みユーザーは `/syncVersions` 全体または個別のテーブルVersionを読み取れます。
+未認証のread、Client write、その他のパスのread/writeは拒否します。
+BackendのService AccountがREST APIで通知を書き込みます。
+
+通知はユーザーごとのRLSで分離しません。テーブル名と更新頻度は認証済みユーザー全員に公開されます。
+レコード取得時のアクセス権限はGAS RPC / SheetORMで判定してください。
+
+## Frontend: Firebase公式SDKで購読する
+
+```ts
+import { versionPath } from "@gasboost/realtime-firebase/client";
+import { onValue, ref } from "firebase/database";
+import { productsTable } from "./shared/tables";
+
+// databaseは初期化済みのFirebase Database、queryClientはTanStack QueryのQueryClient。
+// Firebase Authenticationのsign-in完了後に購読します。
+const unsubscribe = onValue(
+  ref(database, versionPath(productsTable)),
+  () => {
+    void queryClient.invalidateQueries({ queryKey: ["staff"] });
+  },
+);
+
+// 画面の破棄時などに呼び出します。
+unsubscribe();
+```
+
+`versionPath(productsTable)` は `/syncVersions/products` を返します。文字列や独自の定義型を渡す必要はありません。
+Queryの取得関数にはGAS RPCを設定してください。初回・再接続時も現在値のイベントで再取得できます。
+Firebase SDKの購読ラッパーやTanStack Query専用hookは提供しません。
+
+## Firebase Custom Token
+
+既存の `FirebaseCustomToken` と関連する `FirebaseServiceAccount` / `FirebaseCustomTokenUtilities` /
+`FirebaseCustomClaims` は引き続きBackendエントリーポイントから利用できます。
+Firebase Admin SDKやJWTライブラリには依存しません。
+
+```ts
+import { FirebaseCustomToken } from "@gasboost/realtime-firebase";
+
+const token = FirebaseCustomToken.generate({
+  uid: "user-1",
+  claims: { role: "manager" }, // 省略可能
+  serviceAccount: { email, privateKey },
+  utilities: Utilities,
+});
+```
+
+`uid` は1〜128文字です。Firebase / OpenID Connectの予約claimは拒否します。
+Custom Tokenも秘密鍵のリテラルの `\n` を署名直前に正規化します。
+生成tokenはFrontendへ返し、Firebase公式SDKの `signInWithCustomToken()` に渡します。
+認証・セッションのlifecycleやcredentialの保存は利用側またはintegration packageが管理します。
+
+## 0.7.x以前からの移行
+
+0.8.0では旧レコード複製用APIを削除しました。
+
+- `new FirebaseRtdb({ versionStore, transport })` に変更し、`tables` / `principal` / `rowLevelSecurity` / `resolve` / `query` を取り除きます。
+- Frontendのパス取得を `@gasboost/realtime-firebase/client` の `versionPath(sharedTableDefinition)` に置き換えます。
+- 新しい `rtdb.rules()` をFirebaseへ適用し、通知を契機としたGAS RPCの再取得を使用します。
+- 旧layout・record/scope・RLSコンパイラのクラスと関連型はexportされません。
+
+既存の `afterCommit: changes => rtdb.publish(changes)` は維持できます。
+既存RTDBデータの削除・移行は自動実行しません。
+
+## License
+
+MIT

@@ -1,14 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
 import { NodeUtilities } from "@gasboost/fake-node";
-import {
-  and,
-  column,
-  eq,
-  exists,
-  outerColumn,
-  principal,
-  RowLevelSecurity,
-} from "@gasboost/rls";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 // Exercise the public, built RTDB package without coupling either production package.
@@ -21,7 +12,7 @@ import {
   SheetTable,
 } from "../../src";
 
-function setup(withQuery = true) {
+function setup() {
   const employees = new SheetTable({
     dbId: "db",
     name: "employees",
@@ -39,21 +30,6 @@ function setup(withQuery = true) {
     }),
   }).reference("employeeId", employees, "id", "cascade");
   const tables = [employees, tasks] as const;
-  const security = new RowLevelSecurity({
-    table: tasks,
-    select: {
-      using: exists(
-        employees,
-        and(
-          eq(column(employees, "id"), outerColumn(tasks, "employeeId")),
-          eq(
-            column(employees, "ownerId"),
-            principal(z.object({ userId: z.string() }), "userId"),
-          ),
-        ),
-      ),
-    },
-  });
   const cacheService = new InMemoryCacheService();
   const cache = cacheService.getScriptCache();
   vi.spyOn(cacheService, "getScriptCache").mockReturnValue(cache);
@@ -68,22 +44,14 @@ function setup(withQuery = true) {
     expect(cache.get("db:employees")).toBeTruthy();
     expect(cache.get("db:tasks")).toBeTruthy();
   });
-  let db: SheetDB<typeof tables>;
   const rtdb = new FirebaseRtdb({
-    tables,
-    rowLevelSecurity: [security],
-    principal: { userId: "auth.uid" },
     versionStore: { next },
     transport: { patch },
-    query: withQuery
-      ? ({ table, column, value }) =>
-          db.loadRaw(table.name).filter((record) => record[column] === value)
-      : undefined,
   });
   const afterCommit = vi.fn((changes: Parameters<typeof rtdb.publish>[0]) =>
     rtdb.publish(changes),
   );
-  db = new SheetDB({
+  const db = new SheetDB({
     tables,
     cacheService,
     utilities: new NodeUtilities(),
@@ -140,17 +108,8 @@ describe("SheetDB afterCommit → RTDB table version notifications", () => {
     },
   );
 
-  it("publishes without a dependent query resolver", () => {
-    const { db, next, patch } = setup(false);
-    db.table("employees").update([{ id: "e1", ownerId: "bob" }]);
-    expect(next).toHaveBeenCalledExactlyOnceWith("employees");
-    expect(patch).toHaveBeenCalledExactlyOnceWith({
-      "syncVersions/employees": 1,
-    });
-  });
-
   it("propagates publish failure while preserving committed data and releasing locks", () => {
-    const { db, next, patch, cache } = setup(false);
+    const { db, next, patch, cache } = setup();
     patch.mockImplementationOnce(() => {
       throw new Error("offline");
     });

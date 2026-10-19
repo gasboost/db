@@ -76,70 +76,17 @@ jobs:
       - name: Build realtime-firebase
         run: pnpm --filter @gasboost/realtime-firebase build
 
-      - name: Pack and smoke test realtime-firebase
+      - name: Pack and smoke test realtime-firebase backend and browser client
         run: |
-          pnpm --filter @gasboost/table pack
-          pnpm --filter @gasboost/rls pack
           pnpm --filter @gasboost/realtime-firebase pack
-
-          TABLE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-table-*.tgz' -print -quit)"
-          RLS_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-rls-*.tgz' -print -quit)"
           REALTIME_FIREBASE_PACKAGE_FILE="$(find "$(pwd)" -maxdepth 1 -name 'gasboost-realtime-firebase-*.tgz' -print -quit)"
-
-          rm -rf /tmp/realtime-firebase-consumer
-          mkdir -p /tmp/realtime-firebase-consumer
-          cd /tmp/realtime-firebase-consumer
-
+          CONSUMER_DIR="$(mktemp -d)"
+          cp .github/scripts/smoke-realtime-firebase.mjs "$CONSUMER_DIR/smoke.mjs"
+          cd "$CONSUMER_DIR"
           pnpm init
-
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-
-          pkg.pnpm = {
-              overrides: {
-              '@gasboost/table': 'file:${TABLE_PACKAGE_FILE}',
-              '@gasboost/rls': 'file:${RLS_PACKAGE_FILE}'
-              }
-          };
-
-          fs.writeFileSync(
-              'package.json',
-              JSON.stringify(pkg, null, 2) + '\n'
-          );
-          "
-
           pnpm add "$REALTIME_FIREBASE_PACKAGE_FILE"
-          pnpm add -D typescript zod
-
-          cat > index.ts <<'EOF'
-          import {
-          FirebaseCustomToken,
-          FirebaseRtdb,
-          FirebaseRtdbRestTransport,
-          PropertiesVersionStore,
-          } from "@gasboost/realtime-firebase";
-
-          void FirebaseCustomToken;
-          void FirebaseRtdb;
-          void FirebaseRtdbRestTransport;
-          void PropertiesVersionStore;
-          EOF
-
-          cat > tsconfig.json <<'EOF'
-          {
-          "compilerOptions": {
-              "target": "ES2022",
-              "module": "NodeNext",
-              "moduleResolution": "NodeNext",
-              "strict": true,
-              "skipLibCheck": false
-          },
-          "include": ["index.ts"]
-          }
-          EOF
-
-          pnpm exec tsc --noEmit
+          pnpm add -D typescript vite
+          node smoke.mjs
 
       - name: Typecheck replica
         run: pnpm --filter @gasboost/replica typecheck
@@ -226,9 +173,6 @@ jobs:
             });
             const tables = [new SheetTable({ ...employees, dbId: "SPREADSHEET_ID" })] as const;
             const rtdb = new FirebaseRtdb({
-              tables,
-              rowLevelSecurity: [],
-              principal: { userId: "auth.uid" },
               versionStore: new PropertiesVersionStore(PropertiesService.getScriptProperties()),
               transport: new FirebaseRtdbRestTransport({
                 databaseUrl: "https://YOUR_DATABASE_URL",

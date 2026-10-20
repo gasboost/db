@@ -210,10 +210,10 @@ const objectProfileBio: string = objectJoin[0].relations.profiles[0].bio;
 // @ts-expect-error joined fields preserve schema types
 const wrongObjectBody: number =
   objectJoin[0].relations.posts[0].relations.comments[0].body;
-// @ts-expect-error the subquery must target the selected table
 db.query("users").join({
   table: "profiles",
   on: { local: "id", reference: "userId" },
+  // @ts-expect-error the subquery must target the selected table
   query: postsQuery,
 });
 void objectCommentBody;

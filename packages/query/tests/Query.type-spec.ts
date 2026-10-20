@@ -207,23 +207,23 @@ const objectBio: string = objectResult.relations.profiles[0].bio;
 const wrongObjectTitle: number = objectResult.relations.posts[0].title;
 // @ts-expect-error unknown table
 noJoinQuery.join({ table: "unknown", on: { local: "id", reference: "id" } });
-// @ts-expect-error local key must belong to users
 noJoinQuery.join({
   table: "posts",
+  // @ts-expect-error local key must belong to users
   on: { local: "title", reference: "userId" },
 });
 // @ts-expect-error reference key must belong to posts
 noJoinQuery.join({ table: "posts", on: { local: "id", reference: "name" } });
-// @ts-expect-error subquery must target the selected table
 noJoinQuery.join({
   table: "profiles",
   on: { local: "id", reference: "userId" },
+  // @ts-expect-error subquery must target the selected table
   query: postQuery,
 });
-// @ts-expect-error only left and inner are supported
 noJoinQuery.join({
   table: "posts",
   on: { local: "id", reference: "userId" },
+  // @ts-expect-error only left and inner are supported
   type: "right",
 });
 void objectComment;

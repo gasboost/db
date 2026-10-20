@@ -1116,6 +1116,47 @@ join(
 )
 ```
 
+オブジェクト引数形式も利用できます。`table` は JOIN 先、`on.local` は親の列、
+`on.reference` は JOIN 先の列、`query?` は JOIN 先に適用する型安全なサブ Query です。
+`type?` は `"left"`（省略時）または `"inner"` を指定します。
+位置引数形式は引き続き LEFT JOIN として利用できます。
+
+例えば `employees` に `userId` / `departmentId`、`users` に `id` / `name`、
+`departments` に `id` を定義している場合、ユーザー名で従業員を絞り込めます。
+
+```ts
+const usersQuery = db.query("users").and("name", "*", ["田中"]);
+const query = db.query("employees")
+  .join({
+    table: "users",
+    on: { local: "userId", reference: "id" },
+    query: usersQuery,
+    type: "inner",
+  })
+  .join({
+    table: "departments",
+    on: { local: "departmentId", reference: "id" },
+    type: "left",
+  })
+  .orderBy("userId", "asc")
+  .offset(0)
+  .limit(20);
+
+const employees = db.find(query);
+// employees[n].relations.users: 名前条件に一致する User の配列
+// employees[n].relations.departments: 一致する部署の配列（0件なら []）
+```
+
+LEFT は子が0件でも親を残し、INNER は子が0件なら親を除外します。
+子が複数一致しても親は1件だけ返り、子は `relations[table]` の配列に格納されます。
+JOIN は指定順に評価され、INNER で除外した親は後続の LEFT で復活しません。
+JOIN 先とネストした JOIN 先にも select RLS を適用し、許可された子だけで結合します。
+
+INNER を直接含む Query は Filter → JOIN → Sort → Offset → Limit の順で評価します。
+JOIN なし・LEFT のみの Query（位置引数形式を含む）は従来の
+Filter → Sort → Offset → Limit → JOIN の順序を維持します。
+サブ Query ごとに同じルールを適用し、ネストした INNER の有無はそのサブ Query の評価順を決めます。
+
 ---
 
 # Recursive JOIN

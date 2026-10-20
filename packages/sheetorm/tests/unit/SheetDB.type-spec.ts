@@ -185,3 +185,36 @@ emptyMany.users;
 void manyUserName;
 void manyPostTitle;
 void inferredBio;
+
+const objectJoin = db.find(
+  db
+    .query("users")
+    .join({
+      table: "posts",
+      on: { local: "id", reference: "userId" },
+      query: postsQuery,
+      type: "inner",
+    })
+    .join({
+      table: "profiles",
+      on: { local: "id", reference: "userId" },
+      type: "left",
+    })
+    .orderBy("name")
+    .offset(1)
+    .limit(20),
+);
+const objectCommentBody: string =
+  objectJoin[0].relations.posts[0].relations.comments[0].body;
+const objectProfileBio: string = objectJoin[0].relations.profiles[0].bio;
+// @ts-expect-error joined fields preserve schema types
+const wrongObjectBody: number =
+  objectJoin[0].relations.posts[0].relations.comments[0].body;
+// @ts-expect-error the subquery must target the selected table
+db.query("users").join({
+  table: "profiles",
+  on: { local: "id", reference: "userId" },
+  query: postsQuery,
+});
+void objectCommentBody;
+void objectProfileBio;

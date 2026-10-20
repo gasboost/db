@@ -197,6 +197,23 @@ jobs:
               utilities: Utilities,
               afterCommit: changes => rtdb.publish(changes),
             });
+            // Verify both JOIN overloads through the published declarations.
+            const legacyJoined = db.find(
+              db.query("employees").join("id", "employees", "id"),
+            );
+            const objectJoined = db.find(db.query("employees").join({
+              table: "employees",
+              on: { local: "id", reference: "id" },
+              query: db.query("employees").and("name", "*", ["田中"]),
+              type: "inner",
+            }));
+            const legacyName: string = legacyJoined[0].relations.employees[0].name;
+            const objectName: string = objectJoined[0].relations.employees[0].name;
+            // @ts-expect-error JOIN results retain their schema field types
+            const invalidName: number = objectJoined[0].relations.employees[0].name;
+            void legacyName;
+            void objectName;
+            void invalidName;
             db.table("employees").create([{ id: "e1", name: "田中" }]);
             db.table("employees").update([{ id: "e1", name: "田中太郎" }]);
             db.table("employees").delete(["e1"]);

@@ -181,3 +181,50 @@ void nestedCommentBody;
 void filteredPostTitle;
 void orPostTitle;
 void orderedPostTitle;
+
+const objectJoinQuery = new Query<typeof tables, "users">("users")
+  .join({
+    table: "posts",
+    on: { local: "id", reference: "userId" },
+    query: postQuery,
+    type: "inner",
+  })
+  .join({ table: "profiles", on: { local: "id", reference: "userId" } })
+  .and("name", "*", ["田中"])
+  .orderBy("name")
+  .offset(1)
+  .limit(20);
+type ObjectJoinResult = QueryResult<
+  typeof tables,
+  "users",
+  QueryJoinsOf<typeof objectJoinQuery>
+>;
+declare const objectResult: ObjectJoinResult;
+const objectComment: string =
+  objectResult.relations.posts[0].relations.comments[0].body;
+const objectBio: string = objectResult.relations.profiles[0].bio;
+// @ts-expect-error result fields retain their schema types
+const wrongObjectTitle: number = objectResult.relations.posts[0].title;
+// @ts-expect-error unknown table
+noJoinQuery.join({ table: "unknown", on: { local: "id", reference: "id" } });
+// @ts-expect-error local key must belong to users
+noJoinQuery.join({
+  table: "posts",
+  on: { local: "title", reference: "userId" },
+});
+// @ts-expect-error reference key must belong to posts
+noJoinQuery.join({ table: "posts", on: { local: "id", reference: "name" } });
+// @ts-expect-error subquery must target the selected table
+noJoinQuery.join({
+  table: "profiles",
+  on: { local: "id", reference: "userId" },
+  query: postQuery,
+});
+// @ts-expect-error only left and inner are supported
+noJoinQuery.join({
+  table: "posts",
+  on: { local: "id", reference: "userId" },
+  type: "right",
+});
+void objectComment;
+void objectBio;

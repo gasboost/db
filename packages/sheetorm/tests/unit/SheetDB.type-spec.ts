@@ -9,7 +9,7 @@ import { SheetTable } from "../../src/core/SheetTable";
 import { InMemoryGateway } from "../../src/gateway/InMemoryGateway";
 import { InMemoryDataStore } from "../../src/storage/InMemoryDataStore";
 
-it("accepts RLS from logical definitions and SheetTables", () => {
+it("accepts logical and SheetTable RLS only for registered table names", () => {
   const userSchema = z.object({
     id: z.number(),
   });
@@ -47,7 +47,14 @@ it("accepts RLS from logical definitions and SheetTables", () => {
     },
   });
 
-  const db = new SheetDB({
+  const sheetUsersRls = new RowLevelSecurity({
+    table: users,
+    select: {
+      using: allow(),
+    },
+  });
+
+  const config = {
     tables: [users] as const,
     gateway: new InMemoryGateway(
       new InMemoryDataStore(new Map([["db:users", [["id"]]]])),
@@ -55,11 +62,22 @@ it("accepts RLS from logical definitions and SheetTables", () => {
     cacheService: new InMemoryCacheService(),
     utilities: new NodeUtilities(),
 
-    rowLevelSecurity: [usersRls, ordersRls] as const,
+    rowLevelSecurity: [usersRls, sheetUsersRls] as const,
+  };
+
+  const db = new SheetDB(config);
+
+  new SheetDB({
+    ...config,
+    // @ts-expect-error RLS table must belong to SheetDB tables
+    rowLevelSecurity: [ordersRls],
   });
 
-  const policies: typeof db.rowLevelSecurity = [usersRls, ordersRls] as const;
+  const policies: typeof db.rowLevelSecurity = [usersRls, sheetUsersRls] as const;
+  // @ts-expect-error public RLS property must retain registered table names
+  const invalidPolicies: typeof db.rowLevelSecurity = [ordersRls];
   void policies;
+  void invalidPolicies;
 });
 
 const users = new SheetTable({

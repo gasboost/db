@@ -1,4 +1,8 @@
-import type { KeyedTableDefinition, TableChange } from "@gasboost/table";
+import type {
+  KeyedTableDefinition,
+  TableChange,
+  TableDefinition,
+} from "@gasboost/table";
 import {
   Query,
   QueryEvaluation,
@@ -121,7 +125,7 @@ export type SheetDBConfig<T extends readonly SheetTable<string, any>[]> = {
   cacheService: GoogleAppsScript.Cache.CacheService;
   utilities: GoogleAppsScript.Utilities.Utilities;
   principal?: Record<string, unknown>;
-  rowLevelSecurity?: readonly RowLevelSecurity<T[number]>[];
+  rowLevelSecurity?: readonly RowLevelSecurity<TableDefinition>[];
 };
 
 export class SheetDB<
@@ -149,7 +153,7 @@ export class SheetDB<
 
   public readonly principal: Record<string, unknown>;
 
-  public readonly rowLevelSecurity: readonly RowLevelSecurity<T[number]>[];
+  public readonly rowLevelSecurity: readonly RowLevelSecurity<TableDefinition>[];
 
   public readonly rls: RowLevelSecurityEvaluator;
 

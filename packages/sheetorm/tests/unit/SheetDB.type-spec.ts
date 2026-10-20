@@ -1,6 +1,7 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
 import { NodeUtilities } from "@gasboost/fake-node";
 import { RowLevelSecurity, allow } from "@gasboost/rls";
+import { defineTable } from "@gasboost/table";
 import { it } from "vitest";
 import { z } from "zod";
 import { SheetDB } from "../../src/core/SheetDB";
@@ -8,7 +9,7 @@ import { SheetTable } from "../../src/core/SheetTable";
 import { InMemoryGateway } from "../../src/gateway/InMemoryGateway";
 import { InMemoryDataStore } from "../../src/storage/InMemoryDataStore";
 
-it("rejects RLS for a table outside SheetDB tables", () => {
+it("accepts RLS from logical definitions and SheetTables", () => {
   const userSchema = z.object({
     id: z.number(),
   });
@@ -17,12 +18,13 @@ it("rejects RLS for a table outside SheetDB tables", () => {
     id: z.number(),
   });
 
-  const users = new SheetTable({
-    dbId: "db",
+  const userDefinition = defineTable({
     name: "users",
     schema: userSchema,
     primaryKey: "id",
   });
+
+  const users = new SheetTable({ ...userDefinition, dbId: "db" });
 
   const orders = new SheetTable({
     dbId: "db",
@@ -38,7 +40,14 @@ it("rejects RLS for a table outside SheetDB tables", () => {
     },
   });
 
-  new SheetDB({
+  const usersRls = new RowLevelSecurity({
+    table: userDefinition,
+    select: {
+      using: allow(),
+    },
+  });
+
+  const db = new SheetDB({
     tables: [users] as const,
     gateway: new InMemoryGateway(
       new InMemoryDataStore(new Map([["db:users", [["id"]]]])),
@@ -46,9 +55,11 @@ it("rejects RLS for a table outside SheetDB tables", () => {
     cacheService: new InMemoryCacheService(),
     utilities: new NodeUtilities(),
 
-    // @ts-expect-error RLS table must belong to SheetDB tables
-    rowLevelSecurity: [ordersRls],
+    rowLevelSecurity: [usersRls, ordersRls] as const,
   });
+
+  const policies: typeof db.rowLevelSecurity = [usersRls, ordersRls] as const;
+  void policies;
 });
 
 const users = new SheetTable({

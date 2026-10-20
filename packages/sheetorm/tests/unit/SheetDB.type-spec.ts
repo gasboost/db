@@ -1,6 +1,7 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
 import { NodeUtilities } from "@gasboost/fake-node";
 import { RowLevelSecurity, allow } from "@gasboost/rls";
+import { defineTable } from "@gasboost/table";
 import { it } from "vitest";
 import { z } from "zod";
 import { SheetDB } from "../../src/core/SheetDB";
@@ -8,7 +9,7 @@ import { SheetTable } from "../../src/core/SheetTable";
 import { InMemoryGateway } from "../../src/gateway/InMemoryGateway";
 import { InMemoryDataStore } from "../../src/storage/InMemoryDataStore";
 
-it("rejects RLS for a table outside SheetDB tables", () => {
+it("accepts logical and SheetTable RLS only for registered table names", () => {
   const userSchema = z.object({
     id: z.number(),
   });
@@ -17,12 +18,13 @@ it("rejects RLS for a table outside SheetDB tables", () => {
     id: z.number(),
   });
 
-  const users = new SheetTable({
-    dbId: "db",
+  const userDefinition = defineTable({
     name: "users",
     schema: userSchema,
     primaryKey: "id",
   });
+
+  const users = new SheetTable({ ...userDefinition, dbId: "db" });
 
   const orders = new SheetTable({
     dbId: "db",
@@ -38,7 +40,21 @@ it("rejects RLS for a table outside SheetDB tables", () => {
     },
   });
 
-  new SheetDB({
+  const usersRls = new RowLevelSecurity({
+    table: userDefinition,
+    select: {
+      using: allow(),
+    },
+  });
+
+  const sheetUsersRls = new RowLevelSecurity({
+    table: users,
+    select: {
+      using: allow(),
+    },
+  });
+
+  const config = {
     tables: [users] as const,
     gateway: new InMemoryGateway(
       new InMemoryDataStore(new Map([["db:users", [["id"]]]])),
@@ -46,9 +62,22 @@ it("rejects RLS for a table outside SheetDB tables", () => {
     cacheService: new InMemoryCacheService(),
     utilities: new NodeUtilities(),
 
+    rowLevelSecurity: [usersRls, sheetUsersRls] as const,
+  };
+
+  const db = new SheetDB(config);
+
+  new SheetDB({
+    ...config,
     // @ts-expect-error RLS table must belong to SheetDB tables
     rowLevelSecurity: [ordersRls],
   });
+
+  const policies: typeof db.rowLevelSecurity = [usersRls, sheetUsersRls] as const;
+  // @ts-expect-error public RLS property must retain registered table names
+  const invalidPolicies: typeof db.rowLevelSecurity = [ordersRls];
+  void policies;
+  void invalidPolicies;
 });
 
 const users = new SheetTable({

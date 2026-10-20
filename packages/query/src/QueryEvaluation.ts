@@ -73,7 +73,10 @@ export class QueryEvaluation<
   }
 
   public resolve(load: Loader<T>): Record<string, unknown>[] {
-    let records = this.apply(load(this.query.tableName));
+    // Only direct INNER joins defer pagination; each subquery decides independently.
+    const hasInnerJoin = this.query.joins.some((join) => join.type === "inner");
+    const parents = load(this.query.tableName);
+    let records = hasInnerJoin ? this.filter(parents) : this.apply(parents);
 
     for (const join of this.query.joins) {
       const children =
@@ -84,13 +87,15 @@ export class QueryEvaluation<
       records = join.combine(records, children, this.joinResolver);
     }
 
-    return records;
+    return hasInnerJoin ? this.cut(this.shift(this.sort(records))) : records;
   }
 
   public async resolveAsync(
     load: AsyncLoader<T>,
   ): Promise<Record<string, unknown>[]> {
-    let records = this.apply(await load(this.query.tableName));
+    const hasInnerJoin = this.query.joins.some((join) => join.type === "inner");
+    const parents = await load(this.query.tableName);
+    let records = hasInnerJoin ? this.filter(parents) : this.apply(parents);
 
     for (const join of this.query.joins) {
       const children =
@@ -104,6 +109,6 @@ export class QueryEvaluation<
       records = join.combine(records, children, this.joinResolver);
     }
 
-    return records;
+    return hasInnerJoin ? this.cut(this.shift(this.sort(records))) : records;
   }
 }

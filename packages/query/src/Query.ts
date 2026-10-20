@@ -78,6 +78,18 @@ export class Query<
 
   public join<
     RefName extends T[number]["name"],
+    RefJoins extends QueryJoins = {},
+  >(options: {
+    table: RefName;
+    on: {
+      local: TableColumnName<TableByName<T, N>>;
+      reference: TableColumnName<TableByName<T, NoInfer<RefName>>>;
+    };
+    query?: Query<T, NoInfer<RefName>, RefJoins>;
+    type?: "left" | "inner";
+  }): Query<T, N, SetQueryJoin<J, RefName, QueryJoinNode<RefName, RefJoins>>>;
+  public join<
+    RefName extends T[number]["name"],
     LocalKey extends TableColumnName<TableByName<T, N>>,
     RefKey extends TableColumnName<TableByName<T, RefName>>,
     RefJoins extends QueryJoins = {},
@@ -86,20 +98,37 @@ export class Query<
     referenceTableName: RefName,
     referenceKey: RefKey,
     query?: Query<T, RefName, RefJoins>,
-  ): Query<T, N, SetQueryJoin<J, RefName, QueryJoinNode<RefName, RefJoins>>> {
-    this.joins.push(
-      new Join({
-        table: referenceTableName,
-        localKey: localKey as string,
-        foreignKey: referenceKey as string,
-        query: query ?? null,
-      }),
-    );
+  ): Query<T, N, SetQueryJoin<J, RefName, QueryJoinNode<RefName, RefJoins>>>;
+  public join(
+    localKeyOrOptions:
+      | string
+      | {
+          table: T[number]["name"];
+          on: { local: string; reference: string };
+          query?: Query<T, any, any>;
+          type?: "left" | "inner";
+        },
+    referenceTableName?: T[number]["name"],
+    referenceKey?: string,
+    query?: Query<T, any, any>,
+  ): Query<T, N, any> {
+    const options =
+      typeof localKeyOrOptions === "string"
+        ? {
+            table: referenceTableName!,
+            localKey: localKeyOrOptions,
+            foreignKey: referenceKey!,
+            query: query ?? null,
+          }
+        : {
+            table: localKeyOrOptions.table,
+            localKey: localKeyOrOptions.on.local,
+            foreignKey: localKeyOrOptions.on.reference,
+            query: localKeyOrOptions.query ?? null,
+            type: localKeyOrOptions.type,
+          };
 
-    return this as unknown as Query<
-      T,
-      N,
-      SetQueryJoin<J, RefName, QueryJoinNode<RefName, RefJoins>>
-    >;
+    this.joins.push(new Join(options));
+    return this;
   }
 }

@@ -332,6 +332,54 @@ Asynchronous Storage
 
 ---
 
+# JOIN
+
+既存の位置引数形式はそのまま利用できます。常に LEFT JOIN として動作します。
+
+```ts
+const query = new Query<typeof tables, "users">("users")
+  .join("id", "reservations", "userId", reservationsQuery);
+```
+
+オブジェクト引数形式では JOIN ごとに `type` を指定できます。
+
+```ts
+const query = new Query<typeof tables, "users">("users")
+  .join({
+    table: "reservations",
+    on: { local: "id", reference: "userId" },
+    query: reservationsQuery,
+    type: "inner",
+  })
+  .orderBy("name", "asc")
+  .offset(0)
+  .limit(20);
+```
+
+- `table`: JOIN 先のテーブル名。
+- `on.local`: 親テーブルの列。`on.reference`: JOIN 先テーブルの列。
+- `query?`: JOIN 先に適用するサブ Query。テーブル・列・サブ Query とネストした JOIN 結果は型推論されます。
+- `type?`: `"left"`（省略時）または `"inner"`。
+
+`left` は一致する子がなくても親を残し、空の子配列を `JoinResolver` に渡します。
+`inner` は一致する子がない親を除外します。子が複数一致しても親は1件だけ残り、
+一致した子の配列が `JoinResolver` に渡されます。SQL のように親行を多重化しません。
+サブ Query を評価した結果に対して結合キーを照合します。
+複数の LEFT / INNER JOIN は指定順に評価し、除外された親は後続の JOIN でも復活しません。
+
+評価順は Query ごとに決まります。サブ Query にも同じルールを再帰的に適用します。
+
+| その Query に直接指定した JOIN | 評価順 |
+| --- | --- |
+| JOIN なし / LEFT のみ（既存の位置引数を含む） | Filter → Sort → Offset → Limit → JOIN |
+| INNER を含む | Filter → JOIN → Sort → Offset → Limit |
+
+`resolve()` / `resolveAsync()` は同じ順序で評価します。
+`apply(records)` は従来どおり Filter / Sort / Offset / Limit だけを実行し、
+ストレージの読み込みや JOIN は行いません。
+
+---
+
 # JoinResolver
 
 JOIN の出力形式は `QueryEvaluation` に渡す `JoinResolver` が決定します。

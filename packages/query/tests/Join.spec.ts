@@ -214,3 +214,20 @@ describe("Join", () => {
     });
   });
 });
+
+it("INNER excludes missing/null keys and only resolves matching parents once", () => {
+  const join = new Join({
+    table: "children",
+    localKey: "id",
+    foreignKey: "parentId",
+    type: "inner",
+  });
+  const resolve = vi.fn(joinResolver);
+  const children = [{ parentId: 0 }, { parentId: 0 }, { parentId: null }, {}];
+  expect(
+    join.combine([{ id: null }, {}, { id: 0 }, { id: "0" }], children, resolve),
+  ).toEqual([
+    { id: 0, joined: { table: "children", children: children.slice(0, 2) } },
+  ]);
+  expect(resolve).toHaveBeenCalledTimes(1);
+});

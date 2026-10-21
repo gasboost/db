@@ -12,7 +12,9 @@ const principalSchema = z.object({
   userId: z.string(),
 });
 
-function createContext() {
+function createContext(
+  initialPrincipal: Record<string, unknown> = { userId: "user-1" },
+) {
   const dealSchema = z.object({
     id: z.number().meta({ primary: true }),
     ownerId: z.string(),
@@ -83,9 +85,7 @@ function createContext() {
     gateway: new InMemoryGateway(store),
     cacheService: new InMemoryCacheService(),
     utilities: new NodeUtilities(),
-    principal: {
-      userId: "user-1",
-    },
+    principal: initialPrincipal,
     rowLevelSecurity: [dealSecurity],
   });
 
@@ -97,6 +97,79 @@ function createContext() {
 }
 
 describe("SheetDB RLS integration", () => {
+  describe("setPrincipal", () => {
+    it("updates the existing evaluator and write authorization after authentication", () => {
+      const { db, dealTable } = createContext({});
+      const originalPrincipal = db.principal;
+      const evaluator = db.rls;
+
+      expect(evaluator.read(dealTable)).toEqual([]);
+
+      db.setPrincipal({ userId: "user-1", role: "admin" });
+      expect(db.principal).toBe(originalPrincipal);
+      expect(db.rls).toBe(evaluator);
+      expect(evaluator.principal).toBe(originalPrincipal);
+      expect(evaluator.read(dealTable).map((row) => row.id)).toEqual([1, 3]);
+
+      db.setPrincipal({ userId: "user-2" });
+      expect(db.principal).toEqual({ userId: "user-2" });
+      expect(evaluator.read(dealTable).map((row) => row.id)).toEqual([2, 4]);
+
+      expect(() =>
+        db.table("deals").create([
+          { id: 5, ownerId: "user-1", name: "E", amount: 500 },
+        ]),
+      ).toThrow("RLS denied insert");
+      expect(
+        db.table("deals").create([
+          { id: 5, ownerId: "user-2", name: "E", amount: 500 },
+        ]),
+      ).toEqual([{ id: 5, ownerId: "user-2", name: "E", amount: 500 }]);
+    });
+
+    it("clears all old principal keys and permissions", () => {
+      const { db, dealTable } = createContext({ userId: "user-1", role: "admin" });
+      const originalPrincipal = db.principal;
+
+      db.setPrincipal({});
+
+      expect(db.principal).toBe(originalPrincipal);
+      expect(db.principal).toEqual({});
+      expect(db.rls.read(dealTable)).toEqual([]);
+      expect(db.table("deals").find()).toEqual([]);
+    });
+
+    it("preserves values when passed its current principal", () => {
+      const { db } = createContext();
+      const originalPrincipal = db.principal;
+
+      db.setPrincipal(db.principal);
+
+      expect(db.principal).toBe(originalPrincipal);
+      expect(db.principal).toEqual({ userId: "user-1" });
+    });
+
+    it.each(["find", "query", "findMany"] as const)(
+      "uses the updated principal in %s evaluators",
+      (method) => {
+        const { db } = createContext();
+        const query = db.query("deals").orderBy("id");
+        const read = () =>
+          method === "find"
+            ? db.table("deals").find()
+            : method === "query"
+              ? db.find(query)
+              : db.findMany(["deals"]).deals;
+
+        expect(read().map((row) => row.id)).toEqual([1, 3]);
+        db.setPrincipal({ userId: "user-2" });
+        expect(read().map((row) => row.id)).toEqual([2, 4]);
+        db.setPrincipal({});
+        expect(read()).toEqual([]);
+      },
+    );
+  });
+
   describe("find", () => {
     it("select.usingで許可されたRecordだけ返す", () => {
       const { db } = createContext();

@@ -200,6 +200,17 @@ export class SheetDB<
     };
   }
 
+  /** Replaces the principal's contents while preserving its shared RLS reference. */
+  public setPrincipal(principal: Record<string, unknown>): void {
+    const nextPrincipal = { ...principal };
+
+    for (const key of Object.keys(this.principal)) {
+      delete this.principal[key];
+    }
+
+    Object.assign(this.principal, nextPrincipal);
+  }
+
   public table<U extends T[number]["name"]>(name: U): SheetDB<T, U> {
     const table = this.tables.find(
       (candidate): candidate is TableByName<T, U> => candidate.name === name,

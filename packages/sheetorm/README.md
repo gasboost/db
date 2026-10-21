@@ -791,6 +791,20 @@ const deals = db.table("deals").find();
 
 RLS の条件を満たさない Record は返されません。
 
+認証がインスタンス生成後に完了する場合は、同じ `SheetDB` に Principal を設定できます。
+
+```ts
+db.setPrincipal({ userId: "user-1" });
+const deals = db.table("deals").find();
+
+// Principal をクリアする場合
+db.setPrincipal({});
+```
+
+`setPrincipal(principal: Record<string, unknown>): void` は Principal の全キーを置き換えます。
+以前のキーは残らず、オブジェクトの参照を維持するため、既存の RLS 評価器と以後の読み書きに反映されます。
+コンストラクタの `principal` オプションも引き続き利用できます。
+
 ## Default Policy
 
 RLS の設定状態によって動作が異なります。

@@ -1,6 +1,6 @@
 {
   "name": "@gasboost/realtime-firebase",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Table Version notifications for Firebase Realtime Database and GAS Custom Tokens",
   "repository": {
     "type": "git",
@@ -24,6 +24,11 @@
       "types": "./dist/index.d.ts",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./emulator": {
+      "types": "./dist/emulator.d.ts",
+      "require": "./dist/emulator.js",
+      "default": "./dist/emulator.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",

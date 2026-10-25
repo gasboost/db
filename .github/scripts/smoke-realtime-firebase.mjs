@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { runInNewContext } from "node:vm";
+import { createRequire } from "node:module";
 import { build } from "vite";
 
 writeFileSync("backend.ts", `
@@ -11,6 +12,19 @@ import {
   type FirebaseServiceAccount, type FirebaseCustomTokenUtilities, type VersionStore,
 } from "@gasboost/realtime-firebase";
 import { productsTable } from "./shared";
+import {
+  FirebaseRtdbEmulatorTransport, type FirebaseRtdbEmulatorTransportConfig,
+  type RtdbTransport, type RtdbUpdates, type RtdbUrlFetchApp,
+} from "@gasboost/realtime-firebase/emulator";
+const urlFetchApp: RtdbUrlFetchApp = {
+  fetch: () => ({ getResponseCode: () => 200, getContentText: () => "{}" }),
+};
+const emulatorConfig: FirebaseRtdbEmulatorTransportConfig = {
+  databaseName: "demo-smoke-default-rtdb", urlFetchApp,
+};
+const emulator: RtdbTransport = new FirebaseRtdbEmulatorTransport(emulatorConfig);
+const updates: RtdbUpdates = { "syncVersions/employees": 1 };
+emulator.patch(updates);
 const rtdb = new FirebaseRtdb({ versionStore: { next: () => 1 }, transport: { patch: () => {} } });
 rtdb.publish([{ table: productsTable.name }]);
 void [FirebaseCustomToken, FirebaseRtdbRestTransport, PropertiesVersionStore, rtdb.rules()];
@@ -36,6 +50,22 @@ writeFileSync("tsconfig.json", JSON.stringify({
   include: ["backend.ts", "client.ts"],
 }));
 execFileSync("pnpm", ["exec", "tsc"], { stdio: "inherit" });
+const require = createRequire(new URL("package.json", `file://${process.cwd()}/`));
+const { FirebaseRtdbEmulatorTransport } = require("@gasboost/realtime-firebase/emulator");
+const requests = [];
+new FirebaseRtdbEmulatorTransport({
+  databaseName: "demo-smoke-default-rtdb",
+  urlFetchApp: {
+    fetch: (url, options) => {
+      requests.push({ url, options });
+      return { getResponseCode: () => 200, getContentText: () => "{}" };
+    },
+  },
+}).patch({ "syncVersions/employees": 1 });
+assert.equal(requests.length, 1);
+assert.equal(requests[0].url, "http://127.0.0.1:9000/.json?ns=demo-smoke-default-rtdb");
+assert.equal(requests[0].options.headers.Authorization, "Bearer owner");
+assert.deepEqual(JSON.parse(requests[0].options.payload), { "syncVersions/employees": 1 });
 const result = await build({
   configFile: false,
   build: {
@@ -63,4 +93,4 @@ runInNewContext(readFileSync("bundle/client.js", "utf8"), browser);
 assert.deepEqual(Object.keys(browser.ClientSmoke).sort(), ["productsPath", "renamedPath"]);
 assert.equal(browser.ClientSmoke.productsPath, "/syncVersions/sales2026");
 assert.equal(browser.ClientSmoke.renamedPath, "/syncVersions/items");
-console.log("Packed backend types and isolated browser client bundle passed.");
+console.log("Packed backend/emulator types, emulator runtime and isolated browser client bundle passed.");

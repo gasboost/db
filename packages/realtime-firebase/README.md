@@ -12,6 +12,7 @@ pnpm add @gasboost/realtime-firebase @gasboost/table zod
 
 - Backend（GAS）: `@gasboost/realtime-firebase`
 - Frontend（Browser）: `@gasboost/realtime-firebase/client`
+- テストBackend（RTDB Emulator）: `@gasboost/realtime-firebase/emulator`
 
 `/client` は純粋関数 `versionPath(table: TableDefinition): string` のみを公開します。
 GAS globals・サーバー用モジュール・Firebase SDKをruntime importせず、Firebase初期化・購読・状態管理も行いません。
@@ -148,6 +149,46 @@ HTTPエラー・通信例外は呼び出し元へ伝播します。
 credentialの保存・取得先、対象FirebaseへのService Accountのアクセス権限は利用側で管理してください。
 OAuthのscopeは `https://www.googleapis.com/auth/firebase.database` と
 `https://www.googleapis.com/auth/userinfo.email` です。
+
+## 開発用: RTDB Emulator Transport
+
+ローカル開発・E2EのBackendでは、専用サブパスから同期Transportを利用できます。
+
+```ts
+import { FirebaseRtdb, PropertiesVersionStore } from "@gasboost/realtime-firebase";
+import { FirebaseRtdbEmulatorTransport } from "@gasboost/realtime-firebase/emulator";
+
+const rtdb = new FirebaseRtdb({
+  versionStore: new PropertiesVersionStore(PropertiesService.getScriptProperties()),
+  transport: new FirebaseRtdbEmulatorTransport({
+    databaseName: "demo-rednose-pos-default-rtdb",
+    urlFetchApp: UrlFetchApp,
+    host: "127.0.0.1", // 省略可
+    port: 9000,       // 省略可
+  }),
+});
+// SheetDB({ ..., afterCommit: changes => rtdb.publish(changes) })
+rtdb.publish([{ table: "employees" }]);
+```
+
+`databaseName` はRTDBのnamespaceです。空文字・空白のみは拒否します。
+`http://127.0.0.1:9000/.json?ns=<URLエンコードしたnamespace>` にroot PATCHを送り、
+`syncVersions/employees` などのpathとversionをそのままJSON化します。
+OAuth通信、サービスアカウント鍵、アクセストークンキャッシュは使用しません。
+HTTP非2xxはstatusと本文を含む例外、通信失敗は元の例外として呼び出し元に伝播します。
+
+接続はHTTP固定で、hostは `127.0.0.1` / `localhost` / `::1` / `[::1]` のみ、
+portは1〜65535の整数を受け付けます。リダイレクトも追跡しません。
+ローカルのEmulatorへ到達できる実行環境と同期 `RtdbUrlFetchApp` を注入してください。
+クラウド上のGASから開発PCのlocalhostには接続できません。
+
+`Authorization: Bearer owner` はRulesを迂回する **テストBackend専用** の管理者認証です。
+FrontendにはこのTransportを含めず、通常のFirebase SDK + Auth EmulatorでRulesを評価してください。
+namespaceと管理者tokenは [Firebase公式ドキュメント](https://firebase.google.com/docs/rules/unit-tests#interacting_with_the_realtime_database_emulator) を参照してください。
+Vite DevでのTransport自動差し替えは、このパッケージの対象外です。
+
+`FirebaseRtdbEmulatorTransportConfig` と既存の `RtdbTransport` / `RtdbUpdates` / `RtdbUrlFetchApp` の型も
+`@gasboost/realtime-firebase/emulator` からimportできます。
 
 ## Rules: 認証済みClientの通知readのみを許可
 

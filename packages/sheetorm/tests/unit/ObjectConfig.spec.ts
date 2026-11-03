@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { SheetDB } from "../../src/core/SheetDB";
@@ -83,6 +83,7 @@ describe("object-based constructors", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     expect(await db.table("users").find()).toEqual([{ id: 1, name: "Alice" }]);
@@ -109,6 +110,7 @@ describe("object-based constructors", () => {
       gateway: new InMemoryGateway(new InMemoryDataStore()),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     expect(db.table("users")).toBe(db);

@@ -176,8 +176,57 @@ const db = new SheetDB({
   gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
+  lockService: LockService,
 });
 ```
+
+### v4への移行とロック仕様
+
+v4では `SheetDBConfig.lockService` が必須です。GASでは上記のように
+`lockService: LockService` を渡してください。直接ロックを扱う場合も
+`table.lock(cache, utilities, lockService)` /
+`table.holdLock(cache, utilities, lockService)` の第3引数が必要です。
+
+テーブルロックはScriptCacheの `${dbId}:${tableName}` に所有者トークンを保存します。
+ScriptLockは「空き確認→トークン登録→所有者照合」と「所有者照合→削除」だけを
+原子的に保護し、必ずfinallyで解放します。SheetsへのI/O、Consumer処理、再試行の
+sleep中には保持しないため、独立したテーブルの書き込みは並列に進められます。
+同一テーブルは直列化され、トランザクションは従来どおり対象テーブル群を
+決まった順序でロックします。`holdLock()` は再入時に既存ロックを借用し、
+取得したスコープだけが解放します。
+
+TTLは300秒、取得待機上限は300,000ms、ポーリング間隔は200msです。
+ScriptLockの取得待機と最後のsleepも残り待機時間に制限します。
+解放時にScriptLockを取得できない場合は例外を通知し、キャッシュを削除しません。
+CacheServiceはTTL前にevictionする可能性があり、5分リースの更新や永続性は
+保証しません。協調する実行は同じGASプロジェクトのScriptLockとScriptCacheを
+共有する必要があり、別GASプロジェクト間の排他は対象外です。
+
+Node.jsテストではグローバルモックなしで注入できます
+（`@gasboost/fake-node@0.3.0` 以降）。
+
+```ts
+import { InMemoryCacheService } from "@gasboost/fake-core";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
+
+const db = new SheetDB({
+  tables,
+  gateway,
+  cacheService: new InMemoryCacheService(),
+  utilities: new NodeUtilities(),
+  lockService: new NodeLockService({
+    scriptId: "sheetorm-test",
+    userId: "user-1",
+  }),
+});
+```
+
+複数Workerで競合を検証するときは、`createNodeLockState` でScriptLockの状態を
+共有するだけでなく、CacheServiceの保存先もWorker間で共有してください。
+Workerごとに独立したInMemoryCacheServiceを生成しても、テーブル排他の検証には
+なりません。リポジトリのWorkerテストはロック状態とキャッシュ保存先の両方を
+共有し、同一／異なるユーザーで同一テーブルの直列性と異なるテーブルの並列性を
+検証します。GAS実機でのアカウント間検証は別途必要です。
 
 各 `SheetTable` には、対象スプレッドシートの ID を `dbId` として指定します。
 
@@ -272,6 +321,7 @@ const db = new SheetDB({
   gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
+  lockService: LockService,
 });
 ```
 
@@ -774,6 +824,7 @@ const db = new SheetDB({
   gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
+  lockService: LockService,
 
   principal: {
     userId: "user-1",
@@ -1657,6 +1708,7 @@ const db = new SheetDB({
   gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
+  lockService: LockService,
 });
 
 db.migrate();
@@ -1881,6 +1933,7 @@ const db = new SheetDB({
   gateway,
   cacheService: CacheService,
   utilities: Utilities,
+  lockService: LockService,
   afterCommit,
 });
 ```

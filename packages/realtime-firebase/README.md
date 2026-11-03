@@ -66,6 +66,7 @@ const db = new SheetDB({
   gateway: new SheetGateway(Sheets!),
   cacheService: CacheService,
   utilities: Utilities,
+  lockService: LockService,
   afterCommit: (changes) => rtdb.publish(changes),
 });
 ```

@@ -124,6 +124,7 @@ export type SheetDBConfig<T extends readonly SheetTable<string, any>[]> = {
   gateway: AccessableDataStore;
   cacheService: GoogleAppsScript.Cache.CacheService;
   utilities: GoogleAppsScript.Utilities.Utilities;
+  lockService: GoogleAppsScript.Lock.LockService;
   principal?: Record<string, unknown>;
   rowLevelSecurity?: readonly RowLevelSecurity<TableDefinition<T[number]["name"]>>[];
 };
@@ -148,6 +149,7 @@ export class SheetDB<
   private readonly tables: T;
   private gateway: AccessableDataStore;
   private CacheService: GoogleAppsScript.Cache.CacheService;
+  private readonly LockService: GoogleAppsScript.Lock.LockService;
   private Utilities: GoogleAppsScript.Utilities.Utilities;
   private readonly authorization: WriteAuthorization;
 
@@ -165,6 +167,7 @@ export class SheetDB<
     this.gateway = config.gateway;
     this.CacheService = config.cacheService;
     this.Utilities = config.utilities;
+    this.LockService = config.lockService;
 
     this._table = this.tables[0] as TableByName<T, N>;
 
@@ -253,6 +256,7 @@ export class SheetDB<
       this._table,
       this.CacheService,
       this.Utilities,
+      this.LockService,
       params,
       this.authorization,
     );
@@ -290,6 +294,7 @@ export class SheetDB<
       this.gateway,
       this.CacheService,
       this.Utilities,
+      this.LockService,
       records,
       this.authorization,
     );
@@ -406,6 +411,7 @@ export class SheetDB<
             this.gateway,
             this.CacheService,
             this.Utilities,
+            this.LockService,
             updateRecords,
             this.authorization,
           )
@@ -439,6 +445,7 @@ export class SheetDB<
             this._table,
             this.CacheService,
             this.Utilities,
+            this.LockService,
             createParams,
             this.authorization,
           )
@@ -534,6 +541,7 @@ export class SheetDB<
       this.gateway,
       this.CacheService,
       this.Utilities,
+      this.LockService,
       this.authorization,
       primaryKeyValues,
       this.transactionEnabled,
@@ -713,7 +721,7 @@ export class SheetDB<
     this.changes.clear();
     try {
       for (const table of this.writeTables(roots))
-        releases.push(table.holdLock(this.cache, this.Utilities));
+        releases.push(table.holdLock(this.cache, this.Utilities, this.LockService));
       const result = fn();
       const changes = [...this.changes.values()].filter(
         (change) => !snapshotsEqual(change.before, change.after),
@@ -790,7 +798,7 @@ export class SheetDB<
       return;
     }
 
-    const release = table.holdLock(this.cache, this.Utilities);
+    const release = table.holdLock(this.cache, this.Utilities, this.LockService);
 
     try {
       this.gateway.table(table.name, table.dbId);
@@ -805,7 +813,7 @@ export class SheetDB<
     for (const table of this.tables) {
       const columns = table.schema.keyof().options;
 
-      table.lock(this.cache, this.Utilities);
+      table.lock(this.cache, this.Utilities, this.LockService);
 
       try {
         this.gateway.setColumns(table.dbId, table.name, columns);
@@ -823,7 +831,7 @@ export class SheetDB<
 
     this.gateway.table(this._table.name, this._table.dbId);
 
-    this._table.lock(this.cache, this.Utilities);
+    this._table.lock(this.cache, this.Utilities, this.LockService);
 
     try {
       if (this.gateway.count() > 0) {

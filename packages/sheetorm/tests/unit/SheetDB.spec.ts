@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { DeleteCommand } from "../../src/commands/DeleteCommand";
@@ -63,6 +63,7 @@ describe("SheetDB", () => {
       ),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     expect(db.definition("posts")).toBe(postTable);
@@ -83,6 +84,7 @@ describe("SheetDB", () => {
       ),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     expect(() =>
@@ -107,6 +109,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -170,6 +173,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -216,6 +220,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -239,6 +244,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.transaction(() => {
@@ -268,6 +274,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -277,6 +284,7 @@ describe("SheetDB", () => {
         new InMemoryGateway(store),
         new InMemoryCacheService(),
         new NodeUtilities(),
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         createAuthorization(),
         [1],
       ),
@@ -317,6 +325,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     expect(store.dump()).toEqual([
@@ -372,6 +381,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -427,6 +437,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     const result = db.transaction(() => {
@@ -483,6 +494,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -534,6 +546,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -593,6 +606,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.transaction(() => {
@@ -644,6 +658,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -688,6 +703,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -723,6 +739,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users");
@@ -770,6 +787,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     db.table("users").delete(["1", "2"]);
@@ -817,6 +835,7 @@ describe("SheetDB", () => {
         gateway: new InMemoryGateway(store),
         cacheService: new InMemoryCacheService(),
         utilities: new NodeUtilities(),
+        lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       });
 
       const userLock = vi.spyOn(userTable, "lock");
@@ -859,6 +878,7 @@ describe("SheetDB", () => {
         gateway,
         cacheService: new InMemoryCacheService(),
         utilities: new NodeUtilities(),
+        lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       });
 
       const calls: string[] = [];
@@ -957,6 +977,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     expect(() =>
@@ -1036,6 +1057,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     expect(() =>
@@ -1089,6 +1111,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     const query = db.query("users").and("name", "=", ["Alice"]);
@@ -1156,6 +1179,7 @@ describe("SheetDB", () => {
       gateway: new InMemoryGateway(store),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     });
 
     const query = db.query("users").join("id", "posts", "userId");

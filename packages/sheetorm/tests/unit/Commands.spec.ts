@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { CreateCommand } from "../../src/commands/CreateCommand";
@@ -53,6 +53,7 @@ describe("Command coverage", () => {
       table,
       cacheService,
       utilities,
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [{ name: "b", id: 0 }],
       createAuthorization(),
     );
@@ -104,6 +105,7 @@ describe("Command coverage", () => {
       table,
       cacheService,
       utilities,
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [
         { name: "b", id: 0 },
         { name: "c", id: 0 },
@@ -148,6 +150,7 @@ describe("Command coverage", () => {
       table,
       cacheService,
       utilities,
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [{ name: "b", id: 0 }],
       createAuthorization(),
     );
@@ -175,6 +178,7 @@ describe("Command coverage", () => {
       table,
       new InMemoryCacheService(),
       new NodeUtilities(),
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [{ id: 7, name: "b" }],
       createAuthorization(),
     );
@@ -209,6 +213,7 @@ describe("Command coverage", () => {
       table,
       new InMemoryCacheService(),
       utilities,
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [
         { name: "b", id: "" },
         { name: "c", id: "" },
@@ -266,6 +271,7 @@ describe("Command coverage", () => {
       parentTable,
       new InMemoryCacheService(),
       utilities,
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [
         {
           name: "parent",
@@ -351,6 +357,7 @@ describe("Command coverage", () => {
       parentTable,
       new InMemoryCacheService(),
       utilities,
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [
         {
           name: "parent",
@@ -406,6 +413,7 @@ describe("Command coverage", () => {
       table,
       cacheService,
       utilities,
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [{ name: "first", id: 0 }],
       createAuthorization(),
     );
@@ -445,6 +453,7 @@ describe("Command coverage", () => {
       table,
       new InMemoryCacheService(),
       new NodeUtilities(),
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [{ id: 2, email: "a@example.com" }],
       createAuthorization(),
     );
@@ -477,6 +486,7 @@ describe("Command coverage", () => {
       table,
       new InMemoryCacheService(),
       new NodeUtilities(),
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [
         { id: 1, email: "dup@example.com" },
         { id: 2, email: "dup@example.com" },
@@ -512,6 +522,7 @@ describe("Command coverage", () => {
       table,
       new InMemoryCacheService(),
       new NodeUtilities(),
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [{ id: 1 }, { id: 2 }],
       createAuthorization(),
     );
@@ -542,6 +553,7 @@ describe("Command coverage", () => {
       table,
       new InMemoryCacheService(),
       new NodeUtilities(),
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [
         { id: 3, email: "   " },
         { id: 4, email: "ok@example.com" },
@@ -585,6 +597,7 @@ describe("Command coverage", () => {
       gateway,
       new InMemoryCacheService(),
       new NodeUtilities(),
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [{ id: 1, email: "a@example.com" }],
       createAuthorization(),
     );
@@ -624,6 +637,7 @@ describe("Command coverage", () => {
       gateway,
       new InMemoryCacheService(),
       new NodeUtilities(),
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [{ id: 1, email: "b@example.com" }],
       createAuthorization(),
     );
@@ -665,6 +679,7 @@ describe("Command coverage", () => {
       gateway,
       new InMemoryCacheService(),
       new NodeUtilities(),
+      new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       [
         { id: 1, email: null },
         { id: 2, email: "   " },
@@ -739,6 +754,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         createAuthorization(),
         [1],
       );
@@ -808,6 +824,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         createAuthorization(),
         [1],
       );
@@ -912,6 +929,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         createAuthorization(),
         [1],
       );
@@ -994,6 +1012,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         createAuthorization(),
         [1],
       ).execute(records);
@@ -1071,6 +1090,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         createAuthorization(),
         [1],
       );
@@ -1133,6 +1153,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         createAuthorization(),
         [1],
       ).execute(records);
@@ -1203,6 +1224,7 @@ describe("Command coverage", () => {
           gateway,
           new InMemoryCacheService(),
           new NodeUtilities(),
+          new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
           createAuthorization(),
           [1],
         ).execute(records),
@@ -1255,6 +1277,7 @@ describe("Command coverage", () => {
         gateway,
         new InMemoryCacheService(),
         new NodeUtilities(),
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         createAuthorization(),
         [1],
       ).execute(records);

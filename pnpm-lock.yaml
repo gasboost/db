@@ -89,8 +89,8 @@ importers:
         specifier: ^0.1.1
         version: 0.1.1
       '@gasboost/fake-node':
-        specifier: ^0.1.1
-        version: 0.1.1(date-fns@4.4.0)
+        specifier: ^0.3.0
+        version: 0.3.0(date-fns@4.4.0)
       '@types/google-apps-script':
         specifier: ^2.0.12
         version: 2.0.12
@@ -112,8 +112,14 @@ packages:
   '@gasboost/fake-core@0.1.1':
     resolution: {integrity: sha512-QpmbOn5Z1fN5raWKs1nLzsMpIOiEH2+dDl1hYWsKp5PxCgdln142iwhideEmgrOW65KnBQl2e8jY0aROPyyLtg==}
 
+  '@gasboost/fake-core@0.4.0':
+    resolution: {integrity: sha512-7lcKOCEKBEsgXh31MXrNM4ehHuVjpR0UNVkTcahGcPLV3J/eVhcGwW5ZroRCtwKylKvJKW/V1i8pZ/smiHmRzQ==}
+
   '@gasboost/fake-node@0.1.1':
     resolution: {integrity: sha512-y+DwqOHNcNAxnVxh4xMYSo0dZ6zpyrKxfUTJAi0laeJTSEuxItbWnzBv6cgK9vCNYUilmx6r1uvo1D9dcR56Jg==}
+
+  '@gasboost/fake-node@0.3.0':
+    resolution: {integrity: sha512-iBTUo/cIntbI5Eqnnh7GfpI+yDrk4uhCKgEPdfPuIftfZjBIByrecHluQjAoTVrnsmpTEWXc6HaAGqEk7R0rGQ==}
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
@@ -671,9 +677,19 @@ snapshots:
 
   '@gasboost/fake-core@0.1.1': {}
 
+  '@gasboost/fake-core@0.4.0': {}
+
   '@gasboost/fake-node@0.1.1(date-fns@4.4.0)':
     dependencies:
       '@gasboost/fake-core': 0.1.1
+      date-fns-tz: 3.2.0(date-fns@4.4.0)
+      fflate: 0.8.3
+    transitivePeerDependencies:
+      - date-fns
+
+  '@gasboost/fake-node@0.3.0(date-fns@4.4.0)':
+    dependencies:
+      '@gasboost/fake-core': 0.4.0
       date-fns-tz: 3.2.0(date-fns@4.4.0)
       fflate: 0.8.3
     transitivePeerDependencies:

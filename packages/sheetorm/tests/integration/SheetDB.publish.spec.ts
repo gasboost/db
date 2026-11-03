@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 // Exercise the public, built RTDB package without coupling either production package.
@@ -55,6 +55,7 @@ function setup() {
     tables,
     cacheService,
     utilities: new NodeUtilities(),
+    lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     afterCommit,
     gateway: new InMemoryGateway(
       new InMemoryDataStore(

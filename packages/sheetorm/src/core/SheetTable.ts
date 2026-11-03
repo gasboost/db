@@ -34,6 +34,7 @@ export class SheetTable<
   private lockHeld = false;
   private lockKey: string | null = null;
   private cacheRef: GoogleAppsScript.Cache.Cache | null = null;
+  private lockServiceRef: GoogleAppsScript.Lock.LockService | null = null;
   public readonly versionColumn: Columns<Z> | null = null;
   private relations: SheetRelation[] = [];
 
@@ -124,51 +125,62 @@ export class SheetTable<
   lock(
     cache: GoogleAppsScript.Cache.Cache,
     utilities: GoogleAppsScript.Utilities.Utilities,
+    lockService: GoogleAppsScript.Lock.LockService,
   ): void {
     const lockKey = `${this.dbId}:${this.name}`;
     const waitTimeoutMs = 300000;
     const pollIntervalMs = 200;
-    const start = Date.now();
-    if (this.lockHeld && this.lockToken && this.cacheRef && this.lockKey) {
-      const existing = this.cacheRef.get(this.lockKey);
-      if (existing === this.lockToken) {
-        return;
-      }
-      this.lockToken = null;
-      this.lockHeld = false;
-      this.lockKey = null;
-      this.cacheRef = null;
-    }
+    const deadline = Date.now() + waitTimeoutMs;
+    let ownerToken: string | null = null;
 
-    const ownerToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     while (true) {
-      const lock = cache.get(lockKey);
-      if (!lock) {
-        cache.put(lockKey, ownerToken, 300);
-        const confirmed = cache.get(lockKey);
-        if (confirmed === ownerToken) break;
-      }
-
-      if (Date.now() - start > waitTimeoutMs) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
         throw new Error(`${this.name} cache lock timeout (${waitTimeoutMs}ms)`);
       }
 
-      utilities.sleep(pollIntervalMs);
-    }
+      const scriptLock = lockService.getScriptLock();
+      try {
+        if (scriptLock.tryLock(Math.min(pollIntervalMs, remaining))) {
+          if (Date.now() >= deadline) {
+            throw new Error(`${this.name} cache lock timeout (${waitTimeoutMs}ms)`);
+          }
+          if (this.lockHeld && this.lockToken && this.cacheRef && this.lockKey) {
+            if (this.cacheRef.get(this.lockKey) === this.lockToken) return;
+            this.clearLock();
+          }
 
-    this.lockHeld = true;
-    this.lockToken = ownerToken;
-    this.lockKey = lockKey;
-    this.cacheRef = cache;
+          ownerToken ??= `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          if (!cache.get(lockKey)) {
+            cache.put(lockKey, ownerToken, 300);
+            if (cache.get(lockKey) === ownerToken) {
+              this.lockHeld = true;
+              this.lockToken = ownerToken;
+              this.lockKey = lockKey;
+              this.cacheRef = cache;
+              this.lockServiceRef = lockService;
+              return;
+            }
+          }
+        }
+      } finally {
+        // Also handles a service throwing after it has acquired the lock.
+        if (scriptLock.hasLock()) scriptLock.releaseLock();
+      }
+
+      const sleepMs = Math.min(pollIntervalMs, deadline - Date.now());
+      if (sleepMs > 0) utilities.sleep(sleepMs);
+    }
   }
 
   /** Borrow an existing lock; only the acquiring scope may release it. */
   holdLock(
     cache: GoogleAppsScript.Cache.Cache,
     utilities: GoogleAppsScript.Utilities.Utilities,
+    lockService: GoogleAppsScript.Lock.LockService,
   ): () => void {
     const previousToken = this.lockToken;
-    this.lock(cache, utilities);
+    this.lock(cache, utilities, lockService);
     const token = this.lockToken;
     return previousToken === token
       ? () => {}
@@ -178,20 +190,35 @@ export class SheetTable<
   }
 
   releaseLock(): void {
-    if (!this.lockHeld) return;
+    if (!this.lockHeld || !this.lockServiceRef) return;
 
-    if (
-      this.lockToken &&
-      this.cacheRef &&
-      this.lockKey &&
-      this.cacheRef.get(this.lockKey) === this.lockToken
-    ) {
-      this.cacheRef.remove(this.lockKey);
+    let scriptLock: GoogleAppsScript.Lock.Lock | null = null;
+    try {
+      scriptLock = this.lockServiceRef.getScriptLock();
+      scriptLock.waitLock(300000);
+      if (
+        this.lockToken &&
+        this.cacheRef &&
+        this.lockKey &&
+        this.cacheRef.get(this.lockKey) === this.lockToken
+      ) {
+        this.cacheRef.remove(this.lockKey);
+      }
+    } finally {
+      try {
+        if (scriptLock?.hasLock()) scriptLock.releaseLock();
+      } finally {
+        this.clearLock();
+      }
     }
+  }
+
+  private clearLock(): void {
     this.lockToken = null;
     this.lockHeld = false;
     this.lockKey = null;
     this.cacheRef = null;
+    this.lockServiceRef = null;
   }
 
   validate(record: Record<string, any>) {

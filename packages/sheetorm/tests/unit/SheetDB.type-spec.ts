@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import { RowLevelSecurity, allow } from "@gasboost/rls";
 import { defineTable } from "@gasboost/table";
 import { it } from "vitest";
@@ -61,11 +61,15 @@ it("accepts logical and SheetTable RLS only for registered table names", () => {
     ),
     cacheService: new InMemoryCacheService(),
     utilities: new NodeUtilities(),
+    lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
 
     rowLevelSecurity: [usersRls, sheetUsersRls] as const,
   };
 
   const db = new SheetDB(config);
+  const { lockService: _lockService, ...legacyConfig } = config;
+  // @ts-expect-error v4 requires explicit LockService injection
+  new SheetDB(legacyConfig);
 
   new SheetDB({
     ...config,

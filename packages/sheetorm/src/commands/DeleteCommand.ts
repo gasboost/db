@@ -11,11 +11,12 @@ export class DeleteCommand extends WriteCommand {
     gateway: AccessableDataStore,
     CacheService: GoogleAppsScript.Cache.CacheService,
     Utilities: GoogleAppsScript.Utilities.Utilities,
+    LockService: GoogleAppsScript.Lock.LockService,
     authorization: WriteAuthorization,
     private pkValues: any[],
     private transactionEnabled = false,
   ) {
-    super(gateway, table, CacheService, Utilities, authorization);
+    super(gateway, table, CacheService, Utilities, LockService, authorization);
   }
 
   execute(_exsist: SheetRecords): void {
@@ -56,7 +57,11 @@ export class DeleteCommand extends WriteCommand {
     try {
       for (const table of orderedTables)
         releases.push(
-          (table as SheetTable<any, any>).holdLock(this.Cache, this.Utilities),
+          (table as SheetTable<any, any>).holdLock(
+            this.Cache,
+            this.Utilities,
+            this.LockService,
+          ),
         );
       const loaded = this.gateway.readMany(
         orderedTables.map((table) => ({

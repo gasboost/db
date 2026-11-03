@@ -58,6 +58,7 @@ export abstract class WriteCommand {
     protected table: SheetTable<any, any>,
     protected CacheService: GoogleAppsScript.Cache.CacheService,
     protected Utilities: GoogleAppsScript.Utilities.Utilities,
+    protected LockService: GoogleAppsScript.Lock.LockService,
     protected authorization: WriteAuthorization,
   ) {
     this.Cache = CacheService.getScriptCache();

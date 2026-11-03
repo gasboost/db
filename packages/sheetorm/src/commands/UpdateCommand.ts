@@ -11,10 +11,11 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
     gateway: AccessableDataStore,
     CacheService: GoogleAppsScript.Cache.CacheService,
     Utilities: GoogleAppsScript.Utilities.Utilities,
+    LockService: GoogleAppsScript.Lock.LockService,
     private records: z.output<Z>[],
     authorization: WriteAuthorization,
   ) {
-    super(gateway, table, CacheService, Utilities, authorization);
+    super(gateway, table, CacheService, Utilities, LockService, authorization);
   }
 
   preview(exsist: SheetRecords): z.output<Z>[] {
@@ -91,7 +92,11 @@ export class UpdateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
   public execute(exsist: SheetRecords): z.output<Z>[] {
     this.gateway.table(this.table.name, this.table.dbId);
 
-    const release = this.table.holdLock(this.Cache, this.Utilities);
+    const release = this.table.holdLock(
+      this.Cache,
+      this.Utilities,
+      this.LockService,
+    );
 
     try {
       const currentRecords = exsist.getValues();

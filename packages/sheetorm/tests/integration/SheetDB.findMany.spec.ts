@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import {
   allow,
   column,
@@ -85,6 +85,7 @@ function createContext(otherDbId = "db") {
     gateway,
     cacheService: new InMemoryCacheService(),
     utilities: new NodeUtilities(),
+    lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     principal: { userId: "u1" },
     rowLevelSecurity: [
       new RowLevelSecurity({

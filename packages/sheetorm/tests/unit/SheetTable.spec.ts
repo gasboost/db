@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { SheetTable } from "../../src/core/SheetTable";
@@ -214,6 +214,7 @@ describe("関連テーブルの取得", () => {
 });
 
 describe("SheetTable lock/release", () => {
+  const lockService = new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" });
   it("lock がキャッシュにキーを設定する", () => {
     const schema = z.object({ id: z.number().meta({ primary: true }) });
     const table = new SheetTable({
@@ -225,7 +226,7 @@ describe("SheetTable lock/release", () => {
     const cache = new InMemoryCacheService().getScriptCache();
     const utilities = new NodeUtilities();
 
-    table.lock(cache, utilities);
+    table.lock(cache, utilities, lockService);
     expect(cache.get("db:users")).not.toBeNull();
     table.releaseLock();
   });
@@ -241,9 +242,9 @@ describe("SheetTable lock/release", () => {
     const cache = new InMemoryCacheService().getScriptCache();
     const utilities = new NodeUtilities();
 
-    table.lock(cache, utilities);
+    table.lock(cache, utilities, lockService);
     const firstToken = cache.get("db:users");
-    table.lock(cache, utilities);
+    table.lock(cache, utilities, lockService);
     const secondToken = cache.get("db:users");
     expect(secondToken).toBe(firstToken);
     table.releaseLock();
@@ -276,10 +277,10 @@ describe("SheetTable lock/release", () => {
       primaryKey: "id",
     });
 
-    table.lock(cache, utilities);
+    table.lock(cache, utilities, lockService);
     const firstToken = cache.get("db:users");
 
-    table.lock(cache, utilities);
+    table.lock(cache, utilities, lockService);
     const secondToken = cache.get("db:users");
 
     expect(secondToken).toBe(firstToken);
@@ -303,7 +304,7 @@ describe("SheetTable lock/release", () => {
       primaryKey: "id",
     });
 
-    table.lock(cache, utilities);
+    table.lock(cache, utilities, lockService);
     cache.put("db:users", "other", 300);
 
     const originalGet = cache.get.bind(cache);
@@ -313,7 +314,7 @@ describe("SheetTable lock/release", () => {
       .mockReturnValueOnce(null)
       .mockImplementation((key) => originalGet(key));
 
-    expect(() => table.lock(cache, utilities)).not.toThrow();
+    expect(() => table.lock(cache, utilities, lockService)).not.toThrow();
     expect(cache.get("db:users")).not.toBe("other");
 
     table.releaseLock();
@@ -336,7 +337,7 @@ describe("SheetTable lock/release", () => {
       primaryKey: "id",
     });
 
-    table.lock(cache, utilities);
+    table.lock(cache, utilities, lockService);
     cache.put("db:users", "other", 300);
 
     table.releaseLock();
@@ -364,7 +365,7 @@ describe("SheetTable lock/release", () => {
       primaryKey: "id",
     });
 
-    expect(() => table.lock(cache, utilities)).toThrow("cache lock timeout");
+    expect(() => table.lock(cache, utilities, lockService)).toThrow("cache lock timeout");
     nowSpy.mockRestore();
   });
 
@@ -397,7 +398,7 @@ describe("SheetTable lock/release", () => {
       primaryKey: "id",
     });
 
-    expect(() => table.lock(cache, utilities)).not.toThrow();
+    expect(() => table.lock(cache, utilities, lockService)).not.toThrow();
     expect(getCount).toBe(4);
 
     table.releaseLock();
@@ -418,7 +419,7 @@ describe("SheetTable lock/release", () => {
     });
 
     table.releaseLock();
-    table.lock(cache, utilities);
+    table.lock(cache, utilities, lockService);
     table.releaseLock();
     table.releaseLock();
   });

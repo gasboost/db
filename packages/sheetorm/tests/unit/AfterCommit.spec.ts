@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import type { TableChange } from "@gasboost/table";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -55,12 +55,14 @@ function setup(
   const scriptCache = cacheService.getScriptCache();
   vi.spyOn(cacheService, "getScriptCache").mockReturnValue(scriptCache);
   const utilities = new NodeUtilities();
+  const lockService = new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" });
   const afterCommit = vi.fn(hook);
   const db = new SheetDB({
     tables: [parents, children] as const,
     gateway,
     cacheService,
     utilities,
+    lockService,
     afterCommit,
   });
   return {
@@ -70,6 +72,7 @@ function setup(
     gateway,
     cacheService,
     utilities,
+    lockService,
     afterCommit,
   };
 }
@@ -297,6 +300,7 @@ describe("afterCommit", () => {
         parents,
         cacheService,
         utilities,
+        new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         [{ id: 2, name: "queued" }],
         { ensureInsert() {}, ensureUpdate() {}, ensureDelete() {} },
       ),
@@ -374,6 +378,7 @@ describe("afterCommit", () => {
       ),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       afterCommit,
     });
     expect(
@@ -410,6 +415,7 @@ describe("afterCommit", () => {
       ),
       cacheService: new InMemoryCacheService(),
       utilities: new NodeUtilities(),
+      lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
       afterCommit,
     });
     const input = { id: 1, details: { names: ["before"] } };

@@ -10,6 +10,7 @@ export interface Relationable<Z extends ZodObject<any>> {
   lock(
     cache: GoogleAppsScript.Cache.Cache,
     utilities: GoogleAppsScript.Utilities.Utilities,
+    lockService: GoogleAppsScript.Lock.LockService,
   ): void;
   releaseLock(): void;
   getRelationTree(visited?: Set<SheetTable<any, any>>): SheetRelation[];

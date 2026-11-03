@@ -195,6 +195,7 @@ jobs:
               gateway: new SheetGateway(Sheets!),
               cacheService: CacheService,
               utilities: Utilities,
+              lockService: LockService,
               afterCommit: changes => rtdb.publish(changes),
             });
             // Verify both JOIN overloads through the published declarations.

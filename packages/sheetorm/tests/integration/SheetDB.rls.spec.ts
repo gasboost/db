@@ -1,5 +1,5 @@
 import { InMemoryCacheService } from "@gasboost/fake-core";
-import { NodeUtilities } from "@gasboost/fake-node";
+import { NodeLockService, NodeUtilities } from "@gasboost/fake-node";
 import { allow, column, eq, principal, RowLevelSecurity } from "@gasboost/rls";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -85,6 +85,7 @@ function createContext(
     gateway: new InMemoryGateway(store),
     cacheService: new InMemoryCacheService(),
     utilities: new NodeUtilities(),
+    lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
     principal: initialPrincipal,
     rowLevelSecurity: [dealSecurity],
   });
@@ -223,6 +224,7 @@ describe("SheetDB RLS integration", () => {
         gateway: new InMemoryGateway(store),
         cacheService: new InMemoryCacheService(),
         utilities: new NodeUtilities(),
+        lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         principal: {
           userId: "user-1",
         },
@@ -261,6 +263,7 @@ describe("SheetDB RLS integration", () => {
         gateway: new InMemoryGateway(store),
         cacheService: new InMemoryCacheService(),
         utilities: new NodeUtilities(),
+        lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         principal: {
           userId: "user-1",
         },
@@ -295,6 +298,7 @@ describe("SheetDB RLS integration", () => {
         gateway: new InMemoryGateway(store),
         cacheService: new InMemoryCacheService(),
         utilities: new NodeUtilities(),
+        lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         principal: {
           userId: "user-1",
         },
@@ -640,6 +644,7 @@ describe("SheetDB RLS integration", () => {
         gateway: new InMemoryGateway(store),
         cacheService: new InMemoryCacheService(),
         utilities: new NodeUtilities(),
+        lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         principal: {
           userId: "user-1",
         },
@@ -730,6 +735,7 @@ describe("SheetDB RLS integration", () => {
         gateway: new InMemoryGateway(store),
         cacheService: new InMemoryCacheService(),
         utilities: new NodeUtilities(),
+        lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         principal: {
           userId: "user-1",
         },
@@ -806,6 +812,7 @@ describe("SheetDB RLS integration", () => {
         gateway: new InMemoryGateway(store),
         cacheService: new InMemoryCacheService(),
         utilities: new NodeUtilities(),
+        lockService: new NodeLockService({ scriptId: "sheetorm-test", userId: "user-1" }),
         principal: {
           userId: "user-1",
         },

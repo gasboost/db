@@ -30,10 +30,11 @@ export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
     table: SheetTable<string, Z>,
     CacheService: GoogleAppsScript.Cache.CacheService,
     Utilities: GoogleAppsScript.Utilities.Utilities,
+    LockService: GoogleAppsScript.Lock.LockService,
     params: RecordWithRelations<z.output<Z>>[],
     authorization: WriteAuthorization,
   ) {
-    super(gateway, table, CacheService, Utilities, authorization);
+    super(gateway, table, CacheService, Utilities, LockService, authorization);
 
     const normalized = params.map((param) => {
       const relations = param.relations || {};
@@ -66,7 +67,11 @@ export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
 
     this.gateway.table(this.table.name, this.table.dbId);
 
-    const release = this.table.holdLock(this.Cache, this.Utilities);
+    const release = this.table.holdLock(
+      this.Cache,
+      this.Utilities,
+      this.LockService,
+    );
 
     try {
       let lastId: number | null = null;
@@ -122,7 +127,11 @@ export class CreateCommand<Z extends z.ZodObject<any>> extends WriteCommand {
     for (const batch of batches) {
       this.gateway.table(batch.table.name, batch.table.dbId);
 
-      const release = batch.table.holdLock(this.Cache, this.Utilities);
+      const release = batch.table.holdLock(
+        this.Cache,
+        this.Utilities,
+        this.LockService,
+      );
 
       try {
         this.gateway.insert(batch.records);
